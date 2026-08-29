@@ -1,0 +1,127 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   DESIGN SYSTEM — "Yard Signage"
+   --------------------------------------------------------------------------
+   Grounded in the premise itself: cured-concrete greys with a slight cool
+   cast, dark wet-concrete chrome, and ONE accent — hi-vis site amber, the
+   yellow of construction marking and PPE. Amber always carries dark text.
+   Green and red appear only as status/error semantics, never decoration.
+
+   Type: Archivo, one self-hosted variable font. Headings run uppercase with
+   tight tracking to read like painted yard signage.
+
+   Shapes: 4px radii and 2px borders — slab edges, not pills. Flat blocks,
+   minimal shadow. Built for a mid-range Android on mobile data.
+   ========================================================================== */
+
+@theme {
+  --font-sans: var(--font-archivo), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
+
+  /* Concrete ramp — cool neutral, faint teal cast */
+  --color-slab-50: #f5f6f6;
+  --color-slab-100: #e9ebeb;
+  --color-slab-200: #d4d8d8;
+  --color-slab-300: #b3b9ba;
+  --color-slab-400: #8c9395;
+  --color-slab-500: #6c7375;
+  --color-slab-600: #545a5c;
+  --color-slab-700: #3f4446;
+  --color-slab-800: #2a2e2f;
+  --color-slab-900: #1a1d1e;
+
+  /* The one accent */
+  --color-hivis: #f5a300;
+  --color-hivis-dark: #d98c00;
+  --color-hivis-tint: #fdf1d6;
+
+  /* Semantic only */
+  --color-ok: #1c7a4f;
+  --color-ok-tint: #e3f2ea;
+  --color-alert: #b02a20;
+  --color-alert-tint: #fbe9e7;
+
+  --radius-slab: 4px;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-slab-50);
+    color: var(--color-slab-900);
+    font-family: var(--font-sans);
+    /* Keeps long Kenyan place names from blowing out narrow phone layouts. */
+    overflow-wrap: break-word;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-transform: uppercase;
+    letter-spacing: -0.01em;
+    font-weight: 800;
+    line-height: 1.1;
+  }
+
+  /* Visible, high-contrast focus for keyboard users on every control. */
+  :focus-visible {
+    outline: 3px solid var(--color-hivis);
+    outline-offset: 2px;
+  }
+
+  /* Number inputs: hide spinners, they are fiddly on touch. */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+}
+
+@layer utilities {
+  /*
+    Placeholder block for product photography that does not exist yet.
+    Diagonal cast-concrete hatch, drawn in CSS — no image request.
+  */
+  .hatch {
+    background-color: var(--color-slab-200);
+    background-image: repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 10px,
+      color-mix(in srgb, var(--color-slab-400) 35%, transparent) 10px,
+      color-mix(in srgb, var(--color-slab-400) 35%, transparent) 12px
+    );
+  }
+
+  /* Horizontal date strip: scrollable without a visible scrollbar. */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/*
+  Motion policy: short, ease-out, entrances only. No looping or decorative
+  animation anywhere in this app. Anyone who has asked their OS to calm
+  things down gets everything switched off.
+*/
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
