@@ -1,16 +1,70 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { FulfilmentBadge } from "@/components/Badge";
 import { ButtonLink } from "@/components/Button";
 import { PageHeader } from "@/components/PageHeader";
-import { ProductImage } from "@/components/ProductImage";
+import { ProductGallery } from "@/components/ProductGallery";
 import { quoteRules } from "@/data/config";
-import { getCategory, getProduct, products } from "@/data/products";
+import { getProduct, products } from "@/data/products";
 import { formatKes } from "@/lib/format";
 import { AddToCart } from "./AddToCart";
 
 export function generateStaticParams() {
   return products.map((product) => ({ slug: product.slug }));
+}
+
+/**
+ * Per-product metadata.
+ *
+ * Description is the product's own copy plus its fulfilment state, which is
+ * the question a buyer actually has ("can I collect it today, or is it cast
+ * to order?"). Both come from src/data/products.ts, so a change there
+ * carries into search results without a second edit.
+ *
+ * NO PRICE AND NO DIMENSIONS, for the reason stated at the top of
+ * src/data/products.ts: the photographs are real and every number beside
+ * them is still a guess. A description is quoted verbatim by search
+ * engines, so putting a placeholder price in one publishes it. The specs
+ * table on the page carries the same warning in a comment; this is the same
+ * rule applied to the part of the page that leaves the site.
+ *
+ * No `product:price` OpenGraph tags either, and no Product JSON-LD — both
+ * exist to feed shopping results, and neither should be fed invented
+ * figures. They are the obvious next addition once the client confirms
+ * pricing.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  const product = getProduct(slug);
+  if (!product) return {};
+
+  const availability =
+    product.status === "ready_to_ship"
+      ? "Normally in the yard and ready to collect."
+      : "Cast to order.";
+
+  const description = `${product.description} ${availability}`;
+
+  return {
+    title: product.name,
+    description,
+    alternates: { canonical: `/products/${product.slug}` },
+    openGraph: {
+      type: "website",
+      title: product.name,
+      description,
+      url: `/products/${product.slug}`,
+      // The product's own first photograph, resolved against metadataBase.
+      // Products with no photo fall back to the site default rather than
+      // linking a file that is not there.
+      ...(product.images.length > 0 ? { images: [product.images[0]] } : {}),
+    },
+  };
 }
 
 export default async function ProductPage({
@@ -22,20 +76,27 @@ export default async function ProductPage({
   const product = getProduct(slug);
   if (!product) notFound();
 
-  const category = getCategory(product.categoryId);
-
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
+      {/*
+        The eyebrow and the back link both used to carry the category name.
+        Now that a category holds exactly one entry, its name and the
+        product's name are the same word, and the page opened saying
+        "Spindles" three times over — back link, eyebrow, heading. The
+        eyebrow says which half of the business this is instead, and the
+        back link goes to the whole catalogue rather than to a filtered view
+        containing only the item just navigated away from.
+      */}
       <PageHeader
-        eyebrow={category?.name}
+        eyebrow="Concrete yard"
         title={product.name}
-        backHref={`/products?category=${product.categoryId}`}
-        backLabel={category?.name ?? "Products"}
+        backHref="/products"
+        backLabel="Products"
       />
 
       <div className="mt-6 grid gap-8 md:grid-cols-2">
         <div>
-          <ProductImage product={product} variant="detail" priority />
+          <ProductGallery product={product} variant="detail" preload />
         </div>
 
         <div>
@@ -77,7 +138,7 @@ export default async function ProductPage({
                   {product.unitLabel}
                 </span>
               </div>
-              {/* PLACEHOLDER PRICE - see src/data/products.ts */}
+              {/* PLACEHOLDER PRICE — see the header note in src/data/products.ts */}
 
               <AddToCart product={product} />
 
@@ -108,7 +169,12 @@ export default async function ProductPage({
               </div>
             ))}
           </dl>
-          {/* TODO: confirm every specification value with the client. */}
+          {/*
+            PLACEHOLDER DIMENSIONS. Every value in this table is a guess and
+            is marked as such in src/data/products.ts. The photographs above
+            are real; these numbers are not, and the two sitting side by side
+            is exactly why they are still flagged.
+          */}
         </div>
       </div>
     </div>

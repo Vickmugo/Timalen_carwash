@@ -43,6 +43,49 @@
   --color-alert-tint: #fbe9e7;
 
   --radius-slab: 4px;
+
+  /*
+    Plain CSS `ease`, exposed as a utility. Not one of Tailwind's own
+    easings: hover and colour feedback on this site is meant to be
+    unremarkable, and `ease` is the curve that draws no attention to
+    itself. Nothing here uses a spring or a bounce.
+  */
+  --ease-plain: ease;
+}
+
+/* ==========================================================================
+   HOVER IS A CAPABILITY, NOT A STATE
+   --------------------------------------------------------------------------
+   Both of Tailwind's hover variants are redefined here so that EVERY
+   `hover:` and `group-hover:` utility in the project — including every one
+   written before this rule existed — is gated on the device actually having
+   a hovering pointer.
+
+   Without the gate, a touch browser fires hover on tap and leaves it stuck
+   there: a customer's first tap on "Book a Wash" lights the hover state
+   instead of reading as a press, and the button then stays lit after the
+   page moves on. `hover: hover` rules out devices that cannot hover at all;
+   `pointer: fine` additionally rules out coarse pointers that emulate one.
+
+   Doing this at the variant rather than per-component is the point. A
+   per-component gate is a rule someone has to remember; this one cannot be
+   forgotten, and it cost nothing to apply retroactively.
+   ========================================================================== */
+
+@custom-variant hover {
+  @media (hover: hover) and (pointer: fine) {
+    &:hover {
+      @slot;
+    }
+  }
+}
+
+@custom-variant group-hover {
+  @media (hover: hover) and (pointer: fine) {
+    &:is(:where(.group):hover *) {
+      @slot;
+    }
+  }
 }
 
 @layer base {
@@ -108,12 +151,237 @@
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
+
+  /* ======================================================================
+     RECORD TABLE — a table on a laptop, a stack of cards on a phone.
+     ----------------------------------------------------------------------
+     Used by the three tables in the staff view (src/app/admin/page.tsx)
+     and by the price board on /prices.
+
+     THE PROBLEM. Those tables are 34-46rem wide at their narrowest, which
+     on a phone means a sideways scroll: the customer's name is off one edge
+     and their phone number off the other, and reading one booking is a
+     drag-left, drag-right, lose-your-row exercise. Staff open this page on
+     a phone in the yard more than on the office laptop, so that is the case
+     that has to work, not the one that has to survive.
+
+     WHAT THIS DOES. Below 48rem every row becomes a bordered card and every
+     cell becomes a label/value line inside it, using the column heading
+     from `data-label` as the label. The <thead> is hidden because its
+     headings have moved into the cards.
+
+     WHY CSS RATHER THAN A SECOND SET OF COMPONENTS. The obvious
+     alternative is a <table> for desktop and a hand-built list of cards for
+     mobile, hidden from each other with `md:`. That is two pieces of markup
+     describing one record, and the day someone adds a "collected by" column
+     they will add it to one of them. Here there is one row component, and a
+     new cell shows up in both layouts because it is the same cell.
+
+     WHY `@layer utilities` AND NOT `components`. These rules have to beat
+     Tailwind utilities sitting on the same elements — `whitespace-nowrap`
+     on a phone number, mostly. Utilities are a later cascade layer, so from
+     `components` they would lose no matter how specific they were; in the
+     same layer, `.record-table > tbody > tr > :is(td, th)` out-specifies a
+     single utility class — `:is()` takes the specificity of its most
+     specific argument, and both are bare element selectors, so wrapping
+     them costs nothing. The row markup ALSO prefixes those utilities with
+     `md:` so they never apply here in the first place — this is the belt to
+     that pair of braces, for the next person who adds a plain
+     `whitespace-nowrap` without thinking about the phone.
+
+     BOTH CELL TYPES, because /prices leads each row with a
+     `<th scope="row">` — that page is a real cross-referenced table and the
+     service name is a row header, not data. A `td`-only rule would have
+     left those names as undisplayed table cells inside a block card.
+
+     48rem is Tailwind's `md`, and is the width at which the widest of these
+     tables (46rem) fits inside the page's padding without scrolling.
+     ====================================================================== */
+  @media (max-width: 47.99rem) {
+    .record-table,
+    .record-table > tbody,
+    .record-table > tbody > tr,
+    .record-table > tbody > tr > :is(td, th) {
+      display: block;
+    }
+
+    /* The desktop `min-width` is `md:`-prefixed, but a table element also
+       carries an intrinsic minimum from its content. `display: block` above
+       drops that; this makes sure nothing re-imposes it. */
+    .record-table {
+      min-width: 0;
+    }
+
+    /* The column headings live inside the cards now. */
+    .record-table > thead {
+      display: none;
+    }
+
+    /* One record, one card. */
+    .record-table > tbody > tr {
+      border: 2px solid var(--color-slab-200);
+      border-radius: var(--radius-slab);
+      background: #fff;
+      padding-bottom: 0.25rem;
+    }
+
+    .record-table > tbody > tr + tr {
+      margin-top: 0.75rem;
+    }
+
+    .record-table > tbody > tr > :is(td, th) {
+      /* Beats a `whitespace-nowrap` that escaped its `md:` prefix. A phone
+         number wrapping onto two lines is untidy; a card 46rem wide is
+         unusable. */
+      white-space: normal;
+      max-width: none;
+    }
+
+    /* A labelled cell: heading on the left, value on the right. The label
+       column is fixed so the values line up down the card rather than
+       stepping in and out with the length of each heading. */
+    .record-table > tbody > tr > :is(td, th)[data-label] {
+      display: grid;
+      grid-template-columns: 6.25rem minmax(0, 1fr);
+      gap: 0.75rem;
+      align-items: start;
+    }
+
+    .record-table > tbody > tr > :is(td, th)[data-label]::before {
+      content: attr(data-label);
+      padding-top: 0.125rem;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      line-height: 1.4;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: var(--color-slab-500);
+    }
+
+    /*
+      The card's title line — the date or the time it came in. Carries no
+      label because it does not need one, runs full width, and takes a rule
+      underneath so the eye can find where one record stops and the next
+      starts while scrolling.
+    */
+    .record-table > tbody > tr > :is(td, th)[data-head] {
+      border-bottom: 2px solid var(--color-slab-100);
+      margin-bottom: 0.25rem;
+      padding-top: 0.625rem;
+      padding-bottom: 0.625rem;
+      font-size: 0.9375rem;
+      font-weight: 700;
+    }
+
+    /*
+      An expanded quote's detail panel, which is its own <tr>. Pulled up by
+      its own border width so it reads as the bottom half of the card above
+      rather than as a second, unexplained card.
+    */
+    .record-table > tbody > tr[data-detail] {
+      margin-top: -2px;
+      border-top-left-radius: 0;
+      border-top-right-radius: 0;
+      background: var(--color-slab-50);
+    }
+  }
+
+  /*
+    HOVER LIFT — product cards and the buttons that matter.
+
+    A 2px rise and a soft shadow, and that is the whole effect. The design
+    is flat slabs with 2px borders; a card that tilts, scales up or glows
+    would be fighting the rest of the page. What this has to say is only
+    "this block is the thing under your cursor".
+
+    Written as plain CSS rather than a stack of Tailwind utilities for two
+    reasons: the transition names its exact properties (never `all`, which
+    would drag colour, size and layout into the animation and cost paint on
+    a cheap Android), and the hover half lives inside the pointer gate where
+    it can be read at a glance.
+
+    180ms sits in the middle of the useful range — long enough to register
+    as motion, short enough that a cursor moving across a grid of cards
+    does not leave a wake.
+  */
+  .lift {
+    /*
+      Every property this class is allowed to animate, named. Colour is in
+      the list because `.lift` is the single transition on the elements that
+      use it — a button that also carried Tailwind's `transition-colors`
+      would have one `transition-property` declaration overwrite the other
+      and silently lose either the lift or the colour change. One class,
+      one declaration, no cascade race.
+    */
+    transition-property: transform, box-shadow, border-color, background-color,
+      color;
+    transition-duration: 180ms;
+    transition-timing-function: ease;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .lift:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 18px -12px rgb(26 29 30 / 0.5);
+    }
+
+    /* An arrow that leans the way it is pointing. Same gate, same curve. */
+    .lift:hover .lift-nudge {
+      transform: translateX(3px);
+    }
+
+    /* A button that cannot be pressed does not answer the cursor. */
+    .lift:disabled:hover,
+    .lift[aria-disabled="true"]:hover {
+      transform: none;
+      box-shadow: none;
+    }
+  }
+
+  .lift-nudge {
+    transition-property: transform;
+    transition-duration: 180ms;
+    transition-timing-function: ease;
+  }
+
+  /*
+    Under reduced motion the shadow still changes — that is feedback, not
+    movement — but nothing shifts position. The global rule further down
+    already collapses the duration; these two also drop the displacement, so
+    there is no instantaneous jump either.
+
+    All three conditions in one query rather than nesting: this modifies a
+    hover effect, so it belongs inside the same pointer gate as the effect
+    it modifies. Written flat, an audit of the built CSS can see at a glance
+    that there is no `:hover` rule anywhere outside the gate.
+  */
+  @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: reduce) {
+    .lift:hover {
+      transform: none;
+    }
+    .lift:hover .lift-nudge {
+      transform: none;
+    }
+  }
 }
 
 /*
-  Motion policy: short, ease-out, entrances only. No looping or decorative
-  animation anywhere in this app. Anyone who has asked their OS to calm
+  Motion policy: short, plain-curved, feedback only. Nothing on this site
+  animates because it can. Every transition is 150-250ms, names the exact
+  properties it moves, and answers something the visitor just did — a
+  cursor arriving, a status changing. Anyone who has asked their OS to calm
   things down gets everything switched off.
+
+  One deliberate exception: the home page photo carousel loops. It is content
+  rather than decoration — the premises are the pitch — and it is paced like a
+  shopfront window, not like a control. Under reduced motion its crossfade
+  becomes an instant swap (the component also sets motion-reduce:transition-none
+  so it does not lean on the rule below) while the rotation carries on; the
+  request is for less movement, not for one frozen photo.
+
+  The product sliders are the counter-example and stay manual: five items
+  cycling by themselves would be a catalogue that will not hold still while
+  someone reads a price.
 */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -123,5 +391,80 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* ==========================================================================
+   PRINT — RECEIPTS ARE THE ONLY THING ANYONE PRINTS FROM THIS SITE
+   --------------------------------------------------------------------------
+   Two jobs: strip the page down to the document itself, and make sure the
+   result is legible from a tired mono laser on cheap paper, which is the
+   printer this will actually meet.
+
+   NOTE ON PAPER SIZE: `@page` sets margins but deliberately does NOT set
+   `size`. Forcing `size: A4` would make a Letter printer either scale the
+   page down or clip its edge, and forcing Letter would do the same to the
+   A4 that Kenya actually uses. Left alone, the browser prints at whatever
+   is loaded and the receipt — a single narrow column that reflows — fits
+   both. "A4 or Letter" is better served by not choosing.
+   ========================================================================== */
+
+@media print {
+  @page {
+    margin: 15mm;
+  }
+
+  /*
+    Site furniture and controls. Applied to the header, the footer, the
+    Print button itself and any link out of the receipt: none of them are
+    part of the document, and a printed nav bar is just a list of words
+    nobody can click.
+  */
+  .no-print {
+    display: none !important;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  /*
+    EVERY COLOUR IN THIS DESIGN SYSTEM PRINTS BADLY, and one of them prints
+    invisibly. Browsers drop background colours from printed pages by
+    default, so the site's signature block — light text on `slab-900` — comes
+    out as white text on white paper: a receipt with a blank strip where the
+    reference number should be. Rather than fight that with
+    `print-color-adjust` and spend a customer's toner on a black bar, the
+    receipt is flattened to black on white and leans on borders and weight
+    for its structure.
+
+    Forced with `!important` against the utility classes on each element,
+    and scoped to `.receipt` so this says nothing about any other page.
+  */
+  .receipt,
+  .receipt *,
+  .receipt *::before,
+  .receipt *::after {
+    background: transparent !important;
+    color: #000 !important;
+    border-color: #000 !important;
+    box-shadow: none !important;
+  }
+
+  .receipt {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    /* Points, not pixels: the unit the printer is actually working in. */
+    font-size: 11pt;
+  }
+
+  /* A line item split across two sheets is a line item read twice. */
+  .receipt tr,
+  .receipt li,
+  .receipt .keep-together {
+    break-inside: avoid;
   }
 }

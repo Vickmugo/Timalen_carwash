@@ -5,6 +5,8 @@ import { ButtonLink } from "@/components/Button";
 import { PaymentBadge } from "@/components/Badge";
 import { business } from "@/data/business";
 import { formatKes, formatLongDate } from "@/lib/format";
+import { bookingLines, bookingVehicleTypeName } from "@/lib/booking";
+import { receiptPath } from "@/lib/receipt";
 import { useBookings, useIsHydrated } from "@/lib/store";
 
 export function BookingConfirmation() {
@@ -64,9 +66,37 @@ export function BookingConfirmation() {
           </span>
         </div>
 
+        {/*
+          WHAT WAS BOOKED, ITEMISED — read through `bookingLines`, which
+          also covers records made before the price board existed. Those
+          come back as a single line and render here identically: somebody
+          holding an old reference booked a real slot, and this page has to
+          keep working for them. See src/lib/booking.ts.
+        */}
+        <ul className="divide-y-2 divide-slab-100 border-b-2 border-slab-100">
+          {bookingLines(booking).map((line) => (
+            <li
+              key={line.serviceId}
+              className="flex flex-wrap justify-between gap-2 px-4 py-2.5"
+            >
+              <span className="text-sm font-semibold">{line.name}</span>
+              <span className="text-sm font-semibold">
+                {formatKes(line.priceKes)}
+              </span>
+            </li>
+          ))}
+        </ul>
+
         <dl className="divide-y-2 divide-slab-100">
           {[
-            ["Service", booking.serviceName],
+            /*
+              The vehicle column the prices came from. Absent on a legacy
+              booking — the old flow never asked — and the row is dropped
+              rather than guessing a column that was never quoted.
+            */
+            ...(bookingVehicleTypeName(booking)
+              ? [["Priced as", bookingVehicleTypeName(booking) as string]]
+              : []),
             ["Date", formatLongDate(booking.date)],
             ["Time", `${booking.startTime} - ${booking.endTime}`],
             ["Vehicle", booking.vehicle],
@@ -101,6 +131,15 @@ export function BookingConfirmation() {
       </p>
 
       <div className="mt-6 flex flex-wrap gap-3">
+        {/*
+          Offered whatever the payment status is. This is the customer's own
+          record of what they just booked, and the receipt states the status
+          plainly — including "Unpaid". The staff view applies a stricter
+          rule; see canIssueReceipt in src/lib/receipt.ts.
+        */}
+        <ButtonLink href={receiptPath("booking", booking.ref)}>
+          View / print receipt
+        </ButtonLink>
         <ButtonLink href="/products" variant="outline">
           Browse concrete products
         </ButtonLink>

@@ -1,86 +1,91 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import { hoursSummary } from "@/data/business";
-import { washServices } from "@/data/services";
-import { formatDuration, formatKes } from "@/lib/format";
+import { cheapestConfirmedPriceKes } from "@/data/services";
+import { formatKes } from "@/lib/format";
+import { BookingFlow } from "./BookingFlow";
 
-export const metadata = {
-  title: "Book a Wash",
+/**
+ * /book — ONE PAGE, THE WHOLE FLOW.
+ *
+ * There used to be a service index here and a page per service at
+ * /book/[serviceId]. Both are gone. Those three services were invented
+ * before anyone had seen the price board and the yard does not sell them;
+ * the real board prices eleven services against three vehicle sizes, and
+ * a URL per service would now mean thirty-three pages for what is one
+ * question with two parts. The picker asks both on the first step.
+ *
+ * The old /book/exterior-wash URLs 404 rather than redirecting anywhere.
+ * They were live for a demo build only, nothing links to them, and a
+ * redirect from an invented service to a real price list would silently
+ * answer a question the visitor did not ask.
+ */
+
+/**
+ * The title picks up "| Timalen Auto & Concrete" from the template in
+ * src/app/layout.tsx, so it is set here WITHOUT the business name — adding
+ * it would print the name twice.
+ *
+ * PRICES ARE ABSENT FROM THE DESCRIPTION. A description is the line a
+ * search engine quotes verbatim, and the board's prices depend on the
+ * vehicle — a single figure lifted out of the grid and printed in a search
+ * result is a price the business has effectively advertised for vehicles it
+ * does not apply to. The vehicle columns are named instead, which is the
+ * useful half.
+ */
+export const metadata: Metadata = {
+  title: "Book a wash",
+  description:
+    "Book a slot at the wash bay. Pick your vehicle — saloon, family car or pick-up — then the services you need, from a body wash to polishing, and choose a time. One bay, so each slot is held for a single vehicle.",
+  alternates: { canonical: "/book" },
+  openGraph: {
+    title: "Book a wash",
+    description:
+      "Pick your vehicle type, the services you need and a time at the wash bay. One bay, one vehicle per slot.",
+    url: "/book",
+  },
 };
 
-export default function BookIndexPage() {
+export default function BookPage() {
+  const from = cheapestConfirmedPriceKes();
+
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8">
+    <div className="mx-auto max-w-3xl px-4 py-8">
       <PageHeader
         eyebrow="Wash bay"
         title="Book a Wash"
         backHref="/"
         backLabel="Home"
         intro={
-          <p>
-            Pick a service, then choose a time. There is one bay, so each slot
-            is held for a single vehicle. {hoursSummary}.
-          </p>
+          <>
+            <p>
+              Pick your vehicle and what you need doing, then choose a time.
+              There is one bay, so each slot is held for a single vehicle.{" "}
+              {hoursSummary}.
+            </p>
+            <p className="mt-2 text-sm">
+              {/*
+                `from` is computed off the board rather than typed out, so it
+                cannot drift from the grid. Null would mean the grid has no
+                confirmed cell at all — the sentence is dropped rather than
+                printing "from KES 0".
+              */}
+              {from !== null ? `Prices start at ${formatKes(from)}. ` : null}
+              <Link
+                href="/prices"
+                className="font-bold underline underline-offset-4 hover:text-slab-900"
+              >
+                See the full price board
+              </Link>{" "}
+              — including carpets, lorries, buses and motorbikes, which are
+              not bookable online.
+            </p>
+          </>
         }
       />
 
-      {/* PLACEHOLDER PRICING - see src/data/services.ts */}
-      <ul className="mt-6 grid gap-4 md:grid-cols-3">
-        {washServices.map((service) => (
-          <li key={service.id}>
-            <Link
-              href={`/book/${service.id}`}
-              className="group flex h-full flex-col rounded-slab border-2 border-slab-200 bg-white p-5 transition-colors duration-150 ease-out hover:border-slab-900"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <h2 className="text-lg">{service.name}</h2>
-                <span className="shrink-0 rounded-slab border border-slab-300 bg-slab-100 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-slab-600">
-                  {formatDuration(service.durationMinutes)}
-                </span>
-              </div>
-
-              <p className="mt-2 text-sm text-slab-600">{service.description}</p>
-
-              <ul className="mt-4 space-y-1.5">
-                {service.includes.map((item) => (
-                  <li key={item} className="flex gap-2 text-sm text-slab-700">
-                    <svg
-                      viewBox="0 0 16 16"
-                      className="mt-1 size-3.5 shrink-0 text-hivis-dark"
-                      fill="none"
-                      aria-hidden="true"
-                    >
-                      <path
-                        d="m3 8.5 3.5 3.5L13 5"
-                        stroke="currentColor"
-                        strokeWidth="2.4"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                    {item}
-                  </li>
-                ))}
-              </ul>
-
-              <div className="mt-5 flex items-baseline justify-between border-t-2 border-slab-100 pt-4">
-                <span className="text-2xl font-extrabold">
-                  {formatKes(service.priceKes)}
-                </span>
-                <span className="flex items-center gap-1.5 text-sm font-bold uppercase tracking-wide text-slab-600 group-hover:text-slab-900">
-                  Choose
-                  <span
-                    aria-hidden="true"
-                    className="transition-transform duration-150 ease-out group-hover:translate-x-1"
-                  >
-                    &rarr;
-                  </span>
-                </span>
-              </div>
-            </Link>
-          </li>
-        ))}
-      </ul>
+      <BookingFlow />
     </div>
   );
 }

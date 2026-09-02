@@ -5,6 +5,7 @@ import { PaymentBadge } from "@/components/Badge";
 import { ButtonLink } from "@/components/Button";
 import { business } from "@/data/business";
 import { formatKes } from "@/lib/format";
+import { receiptPath } from "@/lib/receipt";
 import { useIsHydrated, useOrders } from "@/lib/store";
 
 export function OrderConfirmation() {
@@ -115,6 +116,10 @@ export function OrderConfirmation() {
       </p>
 
       <div className="mt-6 flex flex-wrap gap-3">
+        {/* See the note on the booking confirmation: offered at any status. */}
+        <ButtonLink href={receiptPath("order", order.ref)}>
+          View / print receipt
+        </ButtonLink>
         <ButtonLink href="/products" variant="outline">
           Keep browsing
         </ButtonLink>

@@ -10,13 +10,36 @@ export const bookingConfig = {
   /**
    * Spacing of candidate start times, in minutes.
    *
-   * This is the GRID, not the service length. Each service declares its own
-   * `durationMinutes` (see src/data/services.ts) and a candidate slot is only
-   * offered if the full duration fits before closing and does not overlap an
-   * existing booking. A 60-minute service on a 30-minute grid can therefore
-   * still start at 08:30.
+   * This is the GRID, not the length of the work. A candidate slot is only
+   * offered if the booking's whole duration fits before closing and does
+   * not overlap an existing booking, so a 60-minute booking on a 30-minute
+   * grid can still start at 08:30.
    */
   slotGridMinutes: 30,
+
+  /**
+   * HOW LONG ONE BOOKING HOLDS THE BAY. STILL A PLACEHOLDER.
+   *
+   * The price board (src/data/services.ts) prices work. It says nothing
+   * whatsoever about how long any of it takes, and nobody has been asked.
+   * So every booking reserves this one block of bay time no matter how much
+   * is on it — a body wash alone and a body wash plus polishing plus seat
+   * wash currently occupy the bay for exactly as long, which is obviously
+   * not true of the real yard.
+   *
+   * That is the SAME placeholder behaviour as before the board was wired
+   * in, deliberately left alone: the old per-tier figures (45 and 90
+   * minutes) were guesses too, and replacing one guess with a per-service
+   * guess would look like progress while being the same invention spread
+   * over eleven rows. 30 minutes is the one figure that was ever confirmed
+   * with the client, for a basic wash.
+   *
+   * TODO / CONFIRM WITH CLIENT: how long each board service takes, and
+   * whether services booked together overlap (two people on one car) or
+   * queue. Until then this is knowingly wrong for multi-service bookings
+   * and the booking flow says so on screen.
+   */
+  placeholderWashDurationMinutes: 30,
 
   /** How many days ahead a customer may book, starting today. */
   bookingWindowDays: 14,

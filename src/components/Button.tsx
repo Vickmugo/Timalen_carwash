@@ -4,9 +4,18 @@ import type { ComponentProps, ReactNode } from "react";
 type Variant = "primary" | "dark" | "outline" | "quiet";
 type Size = "sm" | "md" | "lg";
 
+/**
+ * `lift` (see globals.css) carries BOTH the colour transition and the hover
+ * rise, and is the only transition on a button. It is not paired with
+ * Tailwind's `transition-colors`: two `transition-property` declarations on
+ * one element means one of them wins and the other quietly does nothing.
+ *
+ * The rise itself is gated on a real hovering pointer inside that class, so
+ * a tap on a phone reads as a press rather than sticking in a hover state.
+ */
 const base =
   "inline-flex items-center justify-center gap-2 rounded-slab border-2 font-bold uppercase tracking-wide " +
-  "transition-colors duration-150 ease-out " +
+  "lift " +
   "disabled:cursor-not-allowed disabled:opacity-50";
 
 const variants: Record<Variant, string> = {

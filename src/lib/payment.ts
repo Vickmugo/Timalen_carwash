@@ -36,6 +36,23 @@
  * APIs return, so the calling code should not need to change much.
  */
 
+/**
+ * TRUE while `processPayment` below is the mock.
+ *
+ * Read by src/components/Receipt.tsx, which prints a standing notice that
+ * no money has moved. A receipt is a document someone keeps and may later
+ * wave at the yard, so it must not read as proof of a payment that never
+ * happened — and the demo's payment status says "paid" the moment the
+ * stub resolves.
+ *
+ * FLIP THIS TO `false` in the same commit that replaces the mock body, and
+ * the notice comes off every receipt. It is deliberately one flag in this
+ * file rather than a check somewhere in the UI: the person swapping the
+ * payment implementation is the person who should decide the notice is no
+ * longer true, and they are already in here.
+ */
+export const PAYMENTS_ARE_MOCKED = true;
+
 export interface PaymentRequest {
   amountKes: number;
   phone: string;

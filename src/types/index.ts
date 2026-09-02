@@ -24,29 +24,95 @@ export interface DayHours {
 /* Car wash                                                            */
 /* ------------------------------------------------------------------ */
 
-export interface WashService {
-  id: string;
+/* ------------------------------------------------------------------ */
+/* The wash price board                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The three columns on the painted price board in the wash bay.
+ *
+ * Vehicle SIZE, not vehicle make: the board charges by how much car there
+ * is to wash. "Family Car" is the board's own wording for an estate or SUV
+ * and is kept verbatim — renaming it here would mean the site and the board
+ * a customer is standing in front of disagree.
+ */
+export type VehicleTypeId = "saloon" | "family-car" | "pickup";
+
+export interface VehicleType {
+  id: VehicleTypeId;
+  /** Exactly as painted on the board. */
   name: string;
-  description: string;
-  /** Price in Kenyan Shillings (whole shillings, no cents). */
-  priceKes: number;
+}
+
+/**
+ * ONE PRICE CELL — A REAL FIGURE, OR NOTHING.
+ *
+ * `null` means "nobody has read this off the board yet". It does NOT mean
+ * free, and it is never a guess standing in for a real number.
+ *
+ * This is the whole safety property of src/data/services.ts: a number in
+ * that file came off the price board, so anything rendering one of these
+ * cannot accidentally show an invented figure as though the yard had
+ * confirmed it. Code that displays a cell must handle `null` — say the
+ * price is not listed and point at the phone number, never print a zero.
+ */
+export type PriceCell = number | null;
+
+/** One row of the per-vehicle-type grid: a service, priced by vehicle size. */
+export interface WashPriceRow {
+  id: string;
+  /** Exactly as painted on the board. */
+  name: string;
+  prices: Record<VehicleTypeId, PriceCell>;
   /**
-   * How long the bay is occupied by this service, in minutes.
+   * Which other rows this one already covers, so the picker does not charge
+   * for the same work twice.
    *
-   * Deliberately per-service rather than one global constant: only the
-   * entry tier is confirmed at 30 minutes. A longer service (wash + wax)
-   * can be given its own duration here without touching booking logic.
+   * THREE STATES, and the difference matters:
+   *   undefined  no known overlap — the ordinary case, priced on its own
+   *   string[]   CONFIRMED to include exactly these; the picker deselects
+   *              and disables them while this row is selected
+   *   null       the scope has NOT been confirmed. The picker warns that
+   *              there may be an overlap and leaves the choice to the
+   *              customer, rather than quietly removing a line nobody has
+   *              established is included
+   *
+   * `null` exists for the same reason `PriceCell` allows it: a guessed
+   * inclusion list silently removes money from a booking, which is a
+   * costlier invention than a guessed price, not a cheaper one.
    */
-  durationMinutes: number;
-  /** Bullet points shown on the service card. */
-  includes: string[];
+  subsumes?: string[] | null;
+}
+
+/**
+ * A board item priced as one figure rather than by vehicle size — carpets,
+ * lorries, buses, motorbikes.
+ */
+export interface FlatPriceRow {
+  id: string;
+  /** Exactly as painted on the board. */
+  name: string;
+  priceKes: PriceCell;
+}
+
+/** A headed block of flat-priced items, in board order. */
+export interface FlatPriceGroup {
+  id: string;
+  /** Exactly as painted on the board. */
+  name: string;
+  rows: FlatPriceRow[];
 }
 
 /* ------------------------------------------------------------------ */
 /* Concrete products                                                   */
 /* ------------------------------------------------------------------ */
 
-export type ProductCategoryId = "cabros" | "fencing-posts" | "decorations";
+export type ProductCategoryId =
+  | "fencing-posts"
+  | "slabs"
+  | "spindles"
+  | "column-caps"
+  | "road-kerbs";
 
 export interface ProductCategory {
   id: ProductCategoryId;
@@ -84,11 +150,28 @@ export interface Product {
   quoteOnly: boolean;
   specs: ProductSpec[];
   /**
-   * Path under /public once a real photo exists,
-   * e.g. "/images/products/cabro-standard-60mm.jpg".
-   * `null` renders a labelled placeholder block instead.
+   * Photographs of this item, in the order they are shown. Paths under
+   * /public, e.g. "/images/products/product-slab-02.jpg".
+   *
+   * An array rather than one path because these are real yard photos: the
+   * same stack shot from two or three angles, and no single frame carries
+   * the item on its own. Two or more entries turn on the slider controls in
+   * ProductGallery; one entry renders a still; an empty array renders the
+   * labelled placeholder block.
+   *
+   * Alt text is NOT stored here. It lives in `productPhotoAlt` in
+   * src/data/products.ts, keyed by the same path, and is hand-written per
+   * photo exactly as it is in src/data/property.ts — the frames in a set
+   * differ enough from each other that a shared description would not
+   * serve any of them.
+   *
+   * Keeping it in a separate map rather than turning this into
+   * `{ src, alt }[]` is a deliberate deferral, not the end state: it adds
+   * the missing text without reshaping the catalogue, which is tracked
+   * separately. The cost is that a path can exist here with no entry
+   * there — ProductGallery falls back to a weak derived label if so.
    */
-  image: string | null;
+  images: string[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -112,10 +195,79 @@ export interface CartLine {
 
 export type PaymentStatus = "paid" | "pay_on_collection" | "unpaid";
 
+/**
+ * ONE STATUS CHANGE, AND THE NAME OF WHOEVER SAYS THEY MADE IT.
+ *
+ * Written by the staff view when someone changes a payment or quote status.
+ * `by` comes from the "Acting as" field, which is SELF-REPORTED AND
+ * UNVERIFIED — read the warning at the top of src/data/admin-users.ts
+ * before relying on it for anything. It is a name tag, not an identity.
+ */
+export interface StatusChange {
+  /**
+   * The value the status was set TO, stored raw ("pay_on_collection",
+   * not "Pay on arrival"). Raw because this is a record of what happened;
+   * turning it into words is the reading end's job, and the wording on the
+   * badges is free to change without rewriting history that is already
+   * sitting in people's browsers.
+   */
+  to: string;
+  /** Self-reported name, or `UNATTRIBUTED` if nobody had set one. */
+  by: string;
+  /** ISO 8601 timestamp of the change. */
+  at: string;
+}
+
+/**
+ * One service on a booking, priced for the vehicle type that was chosen.
+ *
+ * The price is COPIED onto the record rather than looked up later. A
+ * booking is what was agreed on the day; if the board is repainted next
+ * month, a receipt printed from an old booking has to keep saying what the
+ * customer actually paid.
+ */
+export interface BookingLine {
+  /** Matches a `WashPriceRow.id` in src/data/services.ts. */
+  serviceId: string;
+  /** The board name as it read when the booking was made. */
+  name: string;
+  /** KES, for the booking's vehicle type. Never null — an unread cell
+   *  cannot be selected, so it cannot reach a booking. */
+  priceKes: number;
+}
+
 export interface Booking {
   ref: string;
-  serviceId: string;
-  serviceName: string;
+
+  /*
+    THE PRICE-BOARD FIELDS.
+    ------------------------------------------------------------------
+    All three are OPTIONAL, and not because they are optional to fill in.
+    Bookings live in the visitor's own localStorage (src/lib/store.ts), so
+    every booking made before the price board was wired in is still sitting
+    in somebody's browser with `serviceName` and no `lines`. Readers must
+    handle both shapes, and there is exactly one place that does:
+    `bookingLines` / `bookingVehicleTypeName` in src/lib/booking.ts. Read
+    through those rather than touching these fields directly.
+  */
+
+  /** Which board column priced this booking. */
+  vehicleTypeId?: VehicleTypeId;
+  /** The column's name as it read at the time, e.g. "Family Car". */
+  vehicleTypeName?: string;
+  /** The services chosen, in board order. At least one on a new booking. */
+  lines?: BookingLine[];
+
+  /*
+    LEGACY, from the three invented tiers that predated the price board.
+    Never written by new bookings. Present only on records already in a
+    visitor's storage, where they are the only description of what was
+    booked — which is why they are read rather than dropped.
+  */
+  serviceId?: string;
+  serviceName?: string;
+
+  /** The whole booking: the sum of every line. */
   priceKes: number;
   durationMinutes: number;
   /** "YYYY-MM-DD" */
@@ -130,6 +282,15 @@ export interface Booking {
   notes: string;
   paymentStatus: PaymentStatus;
   createdAt: string;
+  /**
+   * Status changes made in the staff view, MOST RECENT FIRST.
+   *
+   * Optional because it is absent on two ordinary cases, not just old data:
+   * a record nobody has touched yet, and every record created before this
+   * field existed — which includes whatever is already in a visitor's
+   * localStorage right now. Readers must handle it being undefined.
+   */
+  history?: StatusChange[];
 }
 
 export interface Order {
@@ -142,6 +303,15 @@ export interface Order {
   notes: string;
   paymentStatus: PaymentStatus;
   createdAt: string;
+  /**
+   * Status changes made in the staff view, MOST RECENT FIRST.
+   *
+   * Optional because it is absent on two ordinary cases, not just old data:
+   * a record nobody has touched yet, and every record created before this
+   * field existed — which includes whatever is already in a visitor's
+   * localStorage right now. Readers must handle it being undefined.
+   */
+  history?: StatusChange[];
 }
 
 export type QuoteStatus = "new" | "contacted" | "quoted" | "closed";
@@ -159,4 +329,136 @@ export interface QuoteRequest {
   createdAt: string;
   /** Populated when the request came from an over-threshold cart. */
   lines: CartLine[];
+  /**
+   * Status changes made in the staff view, MOST RECENT FIRST.
+   *
+   * Optional because it is absent on two ordinary cases, not just old data:
+   * a record nobody has touched yet, and every record created before this
+   * field existed — which includes whatever is already in a visitor's
+   * localStorage right now. Readers must handle it being undefined.
+   */
+  history?: StatusChange[];
 }
+
+/* ------------------------------------------------------------------ */
+/* Staged content-change requests                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A REQUEST TO CHANGE THE SITE. NOT A CHANGE TO THE SITE.
+ *
+ * Nothing in this file, and nothing in the staff view that renders it, is
+ * wired to the catalogue. Prices live in src/data/services.ts and
+ * src/data/products.ts, they are compiled into the build, and the only way
+ * one of them moves is a developer editing that file and redeploying.
+ *
+ * These records exist so the yard can say what it wants changed WITHOUT
+ * waiting to catch the developer on the phone, and so the asking is written
+ * down instead of living in a WhatsApp thread nobody can search. The status
+ * below tracks the asking, not the doing.
+ *
+ * The wording on screen says all of this, in the banner above the section
+ * and again on every single card — see the note in
+ * src/lib/change-requests.ts about why it is repeated rather than said once.
+ */
+export type ChangeRequestKind = "price" | "new_item" | "stock";
+
+/**
+ * TWO STATES, AND "SENT" IS SELF-REPORTED.
+ *
+ * `sent` means a member of staff pressed "Mark sent" after copying the text
+ * somewhere. It is a tick on their own list — there is no delivery receipt
+ * behind it, nothing checks that a message was really sent, and the
+ * developer's end of it is not represented here at all. A request can sit
+ * at `sent` for a month without anybody having read it.
+ *
+ * Deliberately NOT a third "applied" state. This app cannot know when a
+ * change has gone live — that happens in a code deploy it has no sight of —
+ * and a status nobody can set truthfully is worse than no status.
+ */
+export type ChangeRequestStatus = "draft" | "sent";
+
+/** What every request carries, whatever it is asking for. */
+interface ChangeRequestBase {
+  ref: string;
+  status: ChangeRequestStatus;
+  createdAt: string;
+  /**
+   * Self-reported name from "Acting as", or `UNATTRIBUTED`. Same caveat as
+   * everywhere else in this app — see src/data/admin-users.ts.
+   */
+  by: string;
+  /** Free text. Always present, often empty. */
+  note: string;
+  /** Status changes, most recent first. Optional; see `QuoteRequest`. */
+  history?: StatusChange[];
+}
+
+/**
+ * "This should cost something different."
+ *
+ * The subject is stored as an OPAQUE ID PLUS THE LABEL AND PRICE AS THEY
+ * READ AT THE TIME. Storing the label is not redundancy: the request is a
+ * message to a human about a moment, and if the board is repainted between
+ * drafting and sending, this record must still say what was actually being
+ * looked at rather than silently re-pointing at whatever holds that id now.
+ */
+export interface PriceChangeRequest extends ChangeRequestBase {
+  kind: "price";
+  /**
+   * From `washSubjectsFor()` or `otherSubjectGroups()` in
+   * src/lib/change-requests.ts. Stable across the form's shape: a
+   * "wash:body-wash:saloon" written before the picker was split into two
+   * steps still resolves through `findSubject`.
+   */
+  subjectId: string;
+  /** e.g. "Body Wash - Saloon". Copied at draft time. */
+  subjectLabel: string;
+  /**
+   * What it cost when the request was drafted. `null` where the board cell
+   * has never been read — those are the rows most likely to be the point of
+   * the request, so they are offered rather than filtered out.
+   */
+  currentPriceKes: number | null;
+  proposedPriceKes: number;
+}
+
+/**
+ * "We sell something the site does not list."
+ *
+ * `categoryId` is a real `ProductCategoryId` or the literal "other", in
+ * which case `otherCategory` carries what staff typed. A genuinely new
+ * category is a real thing that happens in this yard, and forcing it into
+ * one of the five that exist would file the request under a heading the
+ * developer then has to undo.
+ */
+export interface NewItemRequest extends ChangeRequestBase {
+  kind: "new_item";
+  name: string;
+  categoryId: ProductCategoryId | "other";
+  /** Only meaningful when `categoryId` is "other". */
+  otherCategory: string;
+  proposedPriceKes: number;
+  description: string;
+  /** Staff ticked "we still owe you a photo of this". */
+  photoNeeded: boolean;
+}
+
+/**
+ * "Stop offering this" / "start offering it again".
+ *
+ * Products only. The wash services are not stocked — a bay either runs or
+ * it does not, and that is an opening-hours question, not this one.
+ */
+export interface StockChangeRequest extends ChangeRequestBase {
+  kind: "stock";
+  /** A `Product.id` from src/data/products.ts. */
+  subjectId: string;
+  subjectLabel: string;
+  intent: "out_of_stock" | "back_in_stock";
+}
+
+export type ChangeRequest =
+  | PriceChangeRequest
+  | NewItemRequest
+  | StockChangeRequest;
