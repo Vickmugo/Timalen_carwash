@@ -108,8 +108,11 @@ export function openingHoursSpecification(): OpeningHoursSpecification[] {
  *             because a placeholder in this field is a number something
  *             will dial.
  *   geo       never derived. It comes from a real map pin or not at all.
- *   url       always emitted, but `business.siteUrl` is itself a
- *             placeholder domain until a real one is registered.
+ *   url       always emitted, and `business.siteUrl` is now the real
+ *             registered domain.
+ *   email     never emitted. There is no confirmed address — see the note
+ *             in src/data/business.ts — and an invented one in structured
+ *             markup is a contact route a machine will hand out.
  */
 export function localBusinessJsonLd() {
   const telephone = realOrUndefined(business.phone);

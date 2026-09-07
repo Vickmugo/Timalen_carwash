@@ -28,8 +28,9 @@ const archivo = Archivo({
  *
  * `metadataBase` is required as soon as any metadata field uses a relative
  * URL (the canonicals and the OG image below do). It points at
- * `business.siteUrl`, which is still a placeholder domain — see the note
- * on that field.
+ * `business.siteUrl` — now the real domain — and every relative URL below
+ * is resolved against it, so that field has to match the origin the site
+ * is actually served from. See the note on it.
  */
 export const metadata: Metadata = {
   metadataBase: new URL(business.siteUrl),

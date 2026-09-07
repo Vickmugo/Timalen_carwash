@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { Receipt } from "@/components/Receipt";
+import { BookingReceipt, NotFound } from "@/components/Receipt";
+import { getBookingByRef } from "@/lib/bookings-db";
 
 /**
  * /receipt/booking/[ref] — the printable record of one wash booking.
@@ -10,10 +11,21 @@ import { Receipt } from "@/components/Receipt";
  * the paper, the code in the address bar and the code a staff member types
  * into the staff view search are one string.
  *
- * `noindex`, for the reason app/book/confirmed does: the record is in the
- * visitor's own browser, so a crawler reaching this URL can only ever see
- * the "receipt not found" state, and that is what would get indexed under
- * the business's name. app/robots.ts disallows /receipt as well.
+ * FETCHED ON THE SERVER as of Stage B. The booking comes from the database
+ * through src/lib/bookings-db.ts — a direct call, not a hop through
+ * /api/bookings/[ref], because a server component is already on the server
+ * side of that boundary and the extra HTTP round trip would buy nothing.
+ *
+ * WHAT THIS CHANGED FOR THE CUSTOMER. This receipt used to be readable only
+ * in the browser that made the booking; a link forwarded to anyone else,
+ * including the yard, showed "not found". It now renders for whoever holds
+ * the reference, which is what a receipt is for. The other side of that
+ * coin — the reference is now the only thing protecting a customer's name
+ * and phone number — is set out at the top of
+ * src/app/api/bookings/[ref]/route.ts.
+ *
+ * `noindex` still, and app/robots.ts still disallows /receipt: a crawler
+ * has no reference to follow, and these pages carry customer details.
  *
  * No `generateStaticParams`: references are created at runtime and there is
  * no build-time list of them, so this route is rendered on demand.
@@ -24,11 +36,28 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
+export const dynamic = "force-dynamic";
+
 export default async function BookingReceiptPage({
   params,
 }: {
   params: Promise<{ ref: string }>;
 }) {
   const { ref } = await params;
-  return <Receipt kind="booking" reference={ref} />;
+  const booking = await getBookingByRef(ref);
+
+  if (!booking) {
+    return (
+      <NotFound
+        reference={ref}
+        backHref="/book"
+        backLabel="Book a wash"
+        // Not a per-device record any more, so the "try the other phone"
+        // explanation would be a wrong steer. See the note on NotFound.
+        storedLocally={false}
+      />
+    );
+  }
+
+  return <BookingReceipt booking={booking} />;
 }

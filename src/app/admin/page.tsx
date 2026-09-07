@@ -115,17 +115,19 @@ import {
   clearAll,
   getActingAs,
   setActingAs,
-  updateBookingPayment,
   updateChangeRequestStatus,
   updateOrderPayment,
   updateQuoteStatus,
   useActingAs,
-  useBookings,
   useChangeRequests,
   useIsHydrated,
   useOrders,
   useQuotes,
 } from "@/lib/store";
+import {
+  patchBookingPayment,
+  useServerBookings,
+} from "@/lib/use-server-bookings";
 
 const QUOTE_STATUSES: QuoteStatus[] = ["new", "contacted", "quoted", "closed"];
 
@@ -790,8 +792,24 @@ function StatusLog({ history }: { history?: StatusChange[] }) {
 /* ------------------------------------------------------------------ */
 
 export default function AdminPage() {
-  // Subscribed reads: a booking made in another tab appears here live.
-  const bookings = useBookings();
+  /*
+    BOOKINGS COME FROM THE DATABASE. Everything else on this page is still
+    a subscribed read of this browser's localStorage — orders, quotes and
+    change requests were explicitly out of scope for the move, so for now
+    this screen reads from two places at once. That split is deliberate and
+    temporary, not a bug.
+
+    One consequence worth knowing at the counter: a booking made by a
+    customer while this tab is open does not appear until it refreshes.
+    The localStorage sections below still update live. See the note in
+    src/lib/use-server-bookings.ts.
+  */
+  const {
+    bookings,
+    loading: bookingsLoading,
+    error: bookingsError,
+    refresh: refreshBookings,
+  } = useServerBookings();
   const quotes = useQuotes();
   const orders = useOrders();
   const loaded = useIsHydrated();
@@ -809,6 +827,28 @@ export default function AdminPage() {
   const [orderStatus, setOrderStatus] = useState<PaymentStatus | "all">("all");
 
   const [openQuote, setOpenQuote] = useState<string | null>(null);
+  const [bookingWriteError, setBookingWriteError] = useState<string | null>(
+    null,
+  );
+
+  /*
+    A payment status change is now a request, not a local mutation, so it
+    can fail — and it must not fail silently. On success the table is
+    refetched rather than patched in place, so what is on screen is what
+    the database actually holds, including the history row the server just
+    wrote.
+  */
+  async function changeBookingPayment(ref: string, status: PaymentStatus) {
+    setBookingWriteError(null);
+    const ok = await patchBookingPayment(ref, status, getActingAs());
+    if (!ok) {
+      setBookingWriteError(
+        `Could not update ${ref}. The change was not saved — try again.`,
+      );
+      return;
+    }
+    await refreshBookings();
+  }
 
   const searching = normalise(query).length > 0;
 
@@ -1032,7 +1072,15 @@ export default function AdminPage() {
               ) : null
             }
           >
-            {shownBookings.length === 0 ? (
+            {bookingsError || bookingWriteError ? (
+              <p className="mb-4 rounded-slab border-2 border-fail bg-fail-tint px-3 py-2 text-sm text-slab-800">
+                {bookingWriteError ?? bookingsError}
+              </p>
+            ) : null}
+
+            {bookingsLoading ? (
+              <p className="text-sm text-slab-500">Loading bookings...</p>
+            ) : shownBookings.length === 0 ? (
               <EmptyState filtered={bookingsFiltered} onClear={clearAllFilters}>
                 No bookings yet.{" "}
                 <Link
@@ -1064,6 +1112,7 @@ export default function AdminPage() {
                         key={booking.ref}
                         booking={booking}
                         today={today}
+                        onPaymentChange={changeBookingPayment}
                       />
                     ))}
                   </tbody>
@@ -1269,7 +1318,21 @@ export default function AdminPage() {
   one column is two things to change.
 */
 
-function BookingRow({ booking, today }: { booking: Booking; today: string }) {
+function BookingRow({
+  booking,
+  today,
+  onPaymentChange,
+}: {
+  booking: Booking;
+  today: string;
+  /*
+    Passed in rather than imported. The row used to call the store directly
+    and the write was synchronous and could not fail; it is now a request
+    to the server, and the page above owns both the refresh that follows it
+    and the message shown if it does not land.
+  */
+  onPaymentChange: (ref: string, status: PaymentStatus) => void;
+}) {
   const isToday = booking.date === today;
   return (
     <tr>
@@ -1331,9 +1394,7 @@ function BookingRow({ booking, today }: { booking: Booking; today: string }) {
             label={`Change payment status for booking ${booking.ref}`}
             value={booking.paymentStatus}
             options={PAYMENT_STATUSES}
-            onChange={(status) =>
-              updateBookingPayment(booking.ref, status, getActingAs())
-            }
+            onChange={(status) => onPaymentChange(booking.ref, status)}
           />
           <StatusLog history={booking.history} />
           <ReceiptLink

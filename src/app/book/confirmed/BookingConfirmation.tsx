@@ -1,28 +1,30 @@
-"use client";
-
-import { useSearchParams } from "next/navigation";
 import { ButtonLink } from "@/components/Button";
 import { PaymentBadge } from "@/components/Badge";
 import { business } from "@/data/business";
 import { formatKes, formatLongDate } from "@/lib/format";
 import { bookingLines, bookingVehicleTypeName } from "@/lib/booking";
 import { receiptPath } from "@/lib/receipt";
-import { useBookings, useIsHydrated } from "@/lib/store";
+import type { Booking } from "@/types";
 
-export function BookingConfirmation() {
-  const ref = useSearchParams().get("ref");
-  // Records live in localStorage, so nothing is readable until hydration.
-  const hydrated = useIsHydrated();
-  const booking = useBookings().find((entry) => entry.ref === ref);
-
-  if (!hydrated) return <p className="text-slab-500">Loading your booking...</p>;
-
+/**
+ * PRESENTATION ONLY. The booking is fetched by the server component in
+ * page.tsx and handed down.
+ *
+ * No "use client", no hooks, no hydration gate. This used to read the
+ * record out of localStorage, which forced all three: the component had to
+ * wait for hydration before it could tell "not loaded yet" apart from "no
+ * such booking", and it could only ever find a record made in this same
+ * browser. The record now comes from the database, so the page renders
+ * complete on the first paint and works on any device holding the link.
+ */
+export function BookingConfirmation({ booking }: { booking: Booking | null }) {
   if (!booking) {
     return (
       <div className="rounded-slab border-2 border-slab-200 bg-white p-6">
         <h1 className="text-2xl">Booking not found</h1>
         <p className="mt-2 text-slab-600">
-          We could not find a booking with that reference on this device.
+          We could not find a booking with that reference. Check the link, or
+          call the yard on {business.phone}.
         </p>
         <ButtonLink href="/book" className="mt-5">
           Book a wash

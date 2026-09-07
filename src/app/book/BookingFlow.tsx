@@ -46,7 +46,7 @@
  * =====================================================================
  */
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/Button";
 import { TextAreaField, TextField } from "@/components/Field";
@@ -58,14 +58,13 @@ import {
   vehicleTypes,
   washPriceRows,
 } from "@/data/services";
-import type { Booking, PaymentStatus, VehicleTypeId } from "@/types";
+import type { PaymentStatus, VehicleTypeId } from "@/types";
 import {
   formatDuration,
   formatKes,
   formatLongDate,
   formatShortDate,
   fromDateKey,
-  makeRef,
 } from "@/lib/format";
 import {
   selectionTotalKes,
@@ -74,8 +73,8 @@ import {
   withoutCovered,
 } from "@/lib/booking";
 import { processPayment } from "@/lib/payment";
-import { generateSlots, getBookableDates, getDayHours } from "@/lib/slots";
-import { addBooking, getBookings, useBookings, useIsHydrated } from "@/lib/store";
+import type { Slot } from "@/lib/slots";
+import { getBookableDates, getDayHours } from "@/lib/slots";
 import { compactErrors, phoneError, requiredText } from "@/lib/validate";
 
 const STEPS = ["Wash", "Time", "Details", "Payment"];
@@ -88,11 +87,24 @@ export function BookingFlow() {
 
   const [step, setStep] = useState(0);
 
-  // Slots depend on what is already booked, which only exists client-side.
-  // Both of these come from the store rather than an effect, so a booking
-  // made in another tab shows up here without a refresh.
-  const existingBookings = useBookings();
-  const hydrated = useIsHydrated();
+  /*
+    SLOTS COME FROM THE SERVER NOW.
+
+    They used to be computed here from the bookings in this browser's own
+    localStorage, which meant a slot was only ever taken for the person who
+    took it — everybody else's phone showed it free. With one shared wash
+    bay and one shared diary, that is the whole point of the feature, so
+    the grid is built by /api/slots against the real table.
+
+    What comes back is TIMES ONLY, never the day's bookings: this is a
+    public page and those records carry customer names and phone numbers.
+    See the note at the top of src/app/api/slots/route.ts.
+  */
+  const [slotData, setSlotData] = useState<{
+    date: string;
+    slots: Slot[];
+    error: string | null;
+  }>({ date: "", slots: [], error: null });
 
   /* ------------------------- wash selection ------------------------- */
 
@@ -191,10 +203,67 @@ export function BookingFlow() {
   });
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
 
-  const slots = useMemo(() => {
-    if (!selectedDate || !hydrated) return [];
-    return generateSlots(selectedDate, DURATION, existingBookings);
-  }, [selectedDate, existingBookings, hydrated]);
+  /*
+    LOADING IS DERIVED, NOT STORED. The grid is "loading" whenever the data
+    we hold is for a different day than the one selected, which is true the
+    instant somebody taps a new date — no flag to set, and no window where
+    the previous day's times are on screen under the new day's heading.
+
+    A failed fetch renders no slots AND says why. It must not fall through
+    to the empty grid, because an empty grid reads as "the yard is fully
+    booked", which is a different and much more damaging thing to tell a
+    customer than "this did not load".
+  */
+  const slotsLoading = slotData.date !== selectedDate;
+  const slots = slotsLoading ? [] : slotData.slots;
+  const slotsError = slotsLoading ? null : slotData.error;
+
+  const fetchSlots = useCallback(
+    async (date: string): Promise<{ slots: Slot[]; error: string | null }> => {
+      try {
+        const response = await fetch(
+          `/api/slots?date=${encodeURIComponent(date)}`,
+          { cache: "no-store" },
+        );
+        if (!response.ok) throw new Error(String(response.status));
+        const body = (await response.json()) as { slots: Slot[] };
+        return { slots: body.slots, error: null };
+      } catch {
+        return {
+          slots: [],
+          error:
+            "We could not load available times. Check your connection and try again.",
+        };
+      }
+    },
+    [],
+  );
+
+  /*
+    `cancelled` is not ceremony. Tapping through four dates fires four
+    requests, and they can come back in any order — without this, a slow
+    answer for Tuesday can land after Thursday's and paint Tuesday's times
+    under Thursday's heading. The flag drops every response but the one for
+    the date still selected.
+  */
+  useEffect(() => {
+    if (!selectedDate) return;
+    let cancelled = false;
+    void (async () => {
+      const result = await fetchSlots(selectedDate);
+      if (!cancelled) setSlotData({ date: selectedDate, ...result });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate, fetchSlots]);
+
+  /** Refetch the current day on demand — used when a slot is lost mid-form. */
+  const reloadSlots = useCallback(async () => {
+    if (!selectedDate) return;
+    const result = await fetchSlots(selectedDate);
+    setSlotData({ date: selectedDate, ...result });
+  }, [selectedDate, fetchSlots]);
 
   const selectedSlot = slots.find((slot) => slot.startTime === selectedTime);
 
@@ -241,14 +310,30 @@ export function BookingFlow() {
     setSubmitting(true);
     setPaymentError(null);
 
-    const ref = makeRef("WB");
+    /*
+      PAYMENT STILL RUNS FIRST, AND IT IS STILL A STUB.
 
-    // Pay-on-arrival skips the payment call entirely.
+      `processPayment` waits 1.6s and reports success — no API is called and
+      no money moves (src/lib/payment.ts). Unchanged by this stage, and
+      deliberately: wiring a real aggregator is its own job. What HAS
+      changed is that a successful "payment" is now followed by a write to
+      a real database rather than to this browser, so the ordering matters
+      more than it used to. It is left as it was — pay, then write — and
+      the gap is called out where it lands: if the write below fails after
+      this returns success, the customer has "paid" for a booking that does
+      not exist. With a stubbed processor that is a demo artefact; with a
+      real one it is the thing to fix first, by taking payment only after
+      the slot is held.
+
+      No reference is minted here any more. The server decides it, because
+      the server is the only party that can check it is not already taken.
+    */
     if (paymentMethod === "paid") {
       const result = await processPayment({
         amountKes: totalKes,
         phone: form.phone,
-        reference: ref,
+        // The booking has no reference yet. The stub only echoes this back.
+        reference: "pending",
       });
       if (!result.success) {
         setPaymentError(result.message);
@@ -257,45 +342,69 @@ export function BookingFlow() {
       }
     }
 
-    // Re-check the slot at the last moment: another booking may have landed
-    // while this form was open.
-    const latest = getBookings();
-    const stillFree = generateSlots(selectedDate, DURATION, latest).some(
-      (slot) => slot.startTime === selectedSlot.startTime && slot.available,
-    );
+    /*
+      WHAT IS SENT: WHAT WAS CHOSEN, NOT WHAT IT COSTS.
 
-    if (!stillFree) {
+      The service ids and the vehicle column go up; the prices do not. The
+      server reads the same price board and works the total out itself —
+      see the note in src/app/api/bookings/route.ts. A booking's price is
+      not something a browser gets to assert now that the record lives on a
+      server and staff print receipts from it.
+    */
+    let response: Response;
+    try {
+      response = await fetch("/api/bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vehicleTypeId,
+          serviceIds: [...chargeable],
+          date: selectedDate,
+          startTime: selectedSlot.startTime,
+          customerName: form.customerName.trim(),
+          phone: form.phone.trim(),
+          vehicle: form.vehicle.trim(),
+          notes: form.notes.trim(),
+          paymentStatus: paymentMethod,
+        }),
+      });
+    } catch {
+      setPaymentError(
+        "We could not reach the booking system. Check your connection and try again.",
+      );
+      setSubmitting(false);
+      return;
+    }
+
+    // The slot went while the form was open. Send them back to the grid
+    // with the reason, and refetch it so the taken time is greyed out.
+    if (response.status === 409) {
       setSelectedTime(null);
       setPaymentError(
         "That slot was taken while you were filling in the form. Please pick another time.",
       );
       setSubmitting(false);
       setStep(1);
+      void reloadSlots();
       return;
     }
 
-    const booking: Booking = {
-      ref,
-      vehicleTypeId,
-      // The column NAME is copied onto the record, not just its id. If the
-      // board is ever repainted with different wording, this booking keeps
-      // saying what the customer was actually quoted against.
-      vehicleTypeName: vehicleType.name,
-      lines,
-      priceKes: totalKes,
-      durationMinutes: DURATION,
-      date: selectedDate,
-      startTime: selectedSlot.startTime,
-      endTime: selectedSlot.endTime,
-      customerName: form.customerName.trim(),
-      phone: form.phone.trim(),
-      vehicle: form.vehicle.trim(),
-      notes: form.notes.trim(),
-      paymentStatus: paymentMethod,
-      createdAt: new Date().toISOString(),
-    };
+    if (!response.ok) {
+      /*
+        Anything else: a validation rejection, or the database being
+        unreachable. The customer gets a sentence they can act on and the
+        booking is NOT silently dropped — they are still on the form, with
+        everything they typed, and can press the button again. The specific
+        cause is in the server log, which is where it belongs.
+      */
+      setPaymentError(
+        "We could not save your booking. Nothing has been reserved — please try again.",
+      );
+      setSubmitting(false);
+      return;
+    }
 
-    addBooking(booking);
+    const { booking } = (await response.json()) as { booking: { ref: string } };
     router.push(`/book/confirmed?ref=${booking.ref}`);
   }
 
@@ -486,8 +595,12 @@ export function BookingFlow() {
           <div className="mt-6">
             <h3 className="text-base">{formatLongDate(selectedDate)}</h3>
 
-            {!hydrated ? (
+            {slotsLoading ? (
               <p className="mt-3 text-sm text-slab-500">Loading times...</p>
+            ) : slotsError ? (
+              <p className="mt-3 rounded-slab border-2 border-fail bg-fail-tint px-3 py-4 text-sm text-slab-800">
+                {slotsError}
+              </p>
             ) : slots.length === 0 ? (
               <p className="mt-3 rounded-slab border-2 border-slab-200 bg-white px-3 py-4 text-sm text-slab-600">
                 Closed on this day. Pick another date.

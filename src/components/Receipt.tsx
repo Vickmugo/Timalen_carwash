@@ -38,9 +38,8 @@ import { Button, ButtonLink } from "@/components/Button";
 import { business, hasTillNumber, hoursSummary } from "@/data/business";
 import { formatKes, formatLongDate, formatTimestamp } from "@/lib/format";
 import { PAYMENTS_ARE_MOCKED } from "@/lib/payment";
-import type { ReceiptKind } from "@/lib/receipt";
 import { bookingLines, bookingVehicleTypeName } from "@/lib/booking";
-import { useBookings, useIsHydrated, useOrders } from "@/lib/store";
+import { useIsHydrated, useOrders } from "@/lib/store";
 import type { Booking, Order, PaymentStatus } from "@/types";
 
 /* ------------------------------------------------------------------ */
@@ -262,26 +261,39 @@ function Sheet({ children }: { children: React.ReactNode }) {
  * so, because a bare "not found" would send somebody hunting for a typo
  * that is not there.
  */
-function NotFound({
+/**
+ * `storedLocally` decides the explanation, because the two record types no
+ * longer live in the same place and the old wording is now false for one
+ * of them.
+ *
+ * Orders are still in this browser's localStorage, so "nothing on this
+ * device" is the honest answer and the device caveat matters. Bookings
+ * moved to the database in Stage B: a booking reference that finds nothing
+ * finds nothing anywhere, and telling that customer to try their other
+ * phone would send them looking for a record that was never there.
+ */
+export function NotFound({
   reference,
   backHref,
   backLabel,
+  storedLocally = true,
 }: {
   reference: string;
   backHref: string;
   backLabel: string;
+  storedLocally?: boolean;
 }) {
   return (
     <Sheet>
       <h1 className="text-2xl">Receipt not found</h1>
       <p className="mt-2 max-w-prose text-slab-700">
-        Nothing on this device matches{" "}
+        {storedLocally ? "Nothing on this device matches " : "No record matches "}
         <span className="font-mono font-bold">{reference}</span>.
       </p>
       <p className="mt-2 max-w-prose text-sm text-slab-600">
-        In this demo, bookings and orders are saved only in the browser they
-        were made in. A receipt link opened on another phone, or in a private
-        window, will not find the record even when the reference is correct.
+        {storedLocally
+          ? "In this demo, orders are saved only in the browser they were made in. A receipt link opened on another phone, or in a private window, will not find the record even when the reference is correct."
+          : "Check the reference on your confirmation. If it is right, call the yard and they can look it up."}
       </p>
       <ButtonLink href={backHref} className="mt-5">
         {backLabel}
@@ -294,16 +306,20 @@ function NotFound({
 /* The receipt                                                         */
 /* ------------------------------------------------------------------ */
 
-export function Receipt({
-  kind,
-  reference,
-}: {
-  kind: ReceiptKind;
-  reference: string;
-}) {
-  // Both hooks run every render. They are cheap subscribed reads of the same
-  // store, and a hook cannot be called conditionally.
-  const bookings = useBookings();
+/**
+ * ORDERS ONLY, AND STILL FROM localStorage.
+ *
+ * The `kind` prop is gone. Bookings moved to the database in Stage B and
+ * their receipt is now fetched by the server component at
+ * src/app/receipt/booking/[ref]/page.tsx, which renders `BookingReceipt`
+ * below directly. Leaving a booking branch in here would have been a trap:
+ * it would look up a booking in a store that no longer holds any, and
+ * report a real booking as missing.
+ *
+ * Orders, quotes and change requests are deliberately untouched by that
+ * stage — they are still browser records, and this is still how they read.
+ */
+export function Receipt({ reference }: { reference: string }) {
   const orders = useOrders();
   const hydrated = useIsHydrated();
 
@@ -313,20 +329,6 @@ export function Receipt({
         <p className="text-slab-500">Loading receipt...</p>
       </Sheet>
     );
-  }
-
-  if (kind === "booking") {
-    const booking = bookings.find((entry) => entry.ref === reference);
-    if (!booking) {
-      return (
-        <NotFound
-          reference={reference}
-          backHref="/book"
-          backLabel="Book a wash"
-        />
-      );
-    }
-    return <BookingReceipt booking={booking} />;
   }
 
   const order = orders.find((entry) => entry.ref === reference);
@@ -342,7 +344,7 @@ export function Receipt({
   return <OrderReceipt order={order} />;
 }
 
-function BookingReceipt({ booking }: { booking: Booking }) {
+export function BookingReceipt({ booking }: { booking: Booking }) {
   const lines = bookingLines(booking);
   const vehicleTypeName = bookingVehicleTypeName(booking);
 

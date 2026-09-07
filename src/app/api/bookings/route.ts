@@ -1,0 +1,271 @@
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { bookingConfig } from "@/data/config";
+import { getVehicleType, washPriceRows } from "@/data/services";
+import { subsumption, toLines, withoutCovered } from "@/lib/booking";
+import { createBooking, listBookings } from "@/lib/bookings-db";
+import type { NewBookingInput } from "@/lib/bookings-db";
+import { getBookedIntervals } from "@/lib/bookings-db";
+import { generateSlots, getBookableDates } from "@/lib/slots";
+import { isStaffRequest } from "@/lib/staff-guard";
+import { isValidKenyanPhone } from "@/lib/validate";
+import type { PaymentStatus, VehicleTypeId } from "@/types";
+
+/**
+ * =====================================================================
+ * /api/bookings — the whole booking table, and the way a new one is made.
+ * ---------------------------------------------------------------------
+ *   GET   every booking. STAFF ONLY.
+ *   POST  create one. Public — this is the customer's booking form.
+ *
+ * THE SUPABASE BOUNDARY. Both verbs reach the database through
+ * src/lib/bookings-db.ts, which uses the service-role key. That key never
+ * leaves the server and the browser never talks to Supabase directly:
+ * grants and RLS are locked to service_role by design, so an anon-key call
+ * from the client would be refused anyway. This route IS the client's
+ * access to bookings.
+ * =====================================================================
+ */
+
+export const dynamic = "force-dynamic";
+
+function json(body: unknown, status: number): NextResponse {
+  const response = NextResponse.json(body, { status });
+  // Customer names and phone numbers. Never held by a shared cache, and
+  // never replayed from a browser's back-forward cache either.
+  response.headers.set("Cache-Control", "no-store");
+  return response;
+}
+
+/* ------------------------------------------------------------------ */
+/* GET — the staff table                                               */
+/* ------------------------------------------------------------------ */
+
+export async function GET(request: NextRequest) {
+  if (!isStaffRequest(request)) {
+    return json({ error: "not_authorised" }, 401);
+  }
+
+  try {
+    return json({ bookings: await listBookings() }, 200);
+  } catch (error) {
+    console.error("[api/bookings] GET failed:", error);
+    // The message is logged, not returned: a database error can name
+    // columns and constraints, and this response goes to a browser.
+    return json({ error: "read_failed" }, 503);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* POST — a customer books a slot                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * WHAT THE BROWSER IS ALLOWED TO DECIDE.
+ *
+ * Not much, and deliberately. The form sends WHAT was chosen — a vehicle
+ * type, some service ids, a day and a start time — and the server works
+ * out what that costs and how long it takes.
+ *
+ * The alternative, taking `priceKes` and `lines` from the request the way
+ * the localStorage version did, would mean the price of a wash is whatever
+ * the browser says it is. That was harmless while the record lived in the
+ * customer's own browser and only they could read it. It stops being
+ * harmless the moment the record is a real row on a real server that staff
+ * work from and print receipts off.
+ *
+ * So the price board (src/data/services.ts) is read HERE, on the server,
+ * with the same functions the picker uses — including the subsumption rule,
+ * so a service already covered by another cannot be charged twice.
+ */
+interface BookingRequestBody {
+  vehicleTypeId?: unknown;
+  serviceIds?: unknown;
+  date?: unknown;
+  startTime?: unknown;
+  customerName?: unknown;
+  phone?: unknown;
+  vehicle?: unknown;
+  notes?: unknown;
+  paymentStatus?: unknown;
+}
+
+const PAYMENT_STATUSES: PaymentStatus[] = [
+  "paid",
+  "pay_on_collection",
+  "unpaid",
+];
+
+function asTrimmedString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+export async function POST(request: NextRequest) {
+  let body: BookingRequestBody;
+  try {
+    body = (await request.json()) as BookingRequestBody;
+  } catch {
+    return json({ error: "bad_request", detail: "Body is not JSON." }, 400);
+  }
+
+  /* ---- the vehicle column ---- */
+  const vehicleTypeId = asTrimmedString(body.vehicleTypeId) as VehicleTypeId;
+  const vehicleType = getVehicleType(vehicleTypeId);
+  if (!vehicleType) {
+    return json(
+      { error: "bad_request", detail: "Unknown vehicle type." },
+      400,
+    );
+  }
+
+  /* ---- the services, priced from the board rather than from the body ---- */
+  const requestedIds = Array.isArray(body.serviceIds)
+    ? new Set(body.serviceIds.filter((id): id is string => typeof id === "string"))
+    : new Set<string>();
+
+  if (requestedIds.size === 0) {
+    return json(
+      { error: "bad_request", detail: "Choose at least one service." },
+      400,
+    );
+  }
+
+  // The same two steps the picker runs, in the same order: drop anything
+  // already covered by another selected service, then price what is left.
+  // `toLines` also drops any row whose board cell has never been read, so
+  // an unpriced service can never reach a booking as a zero.
+  const { covered } = subsumption(washPriceRows, requestedIds);
+  const chargeable = withoutCovered(requestedIds, covered);
+  const lines = toLines(washPriceRows, chargeable, vehicleTypeId);
+
+  if (lines.length === 0) {
+    return json(
+      {
+        error: "bad_request",
+        detail: "None of those services have a listed price for that vehicle.",
+      },
+      400,
+    );
+  }
+
+  const priceKes = lines.reduce((total, line) => total + line.priceKes, 0);
+  const durationMinutes = bookingConfig.placeholderWashDurationMinutes;
+
+  /* ---- the customer's details ---- */
+  const customerName = asTrimmedString(body.customerName);
+  const phone = asTrimmedString(body.phone);
+  const vehicle = asTrimmedString(body.vehicle);
+  const notes = asTrimmedString(body.notes);
+
+  if (!customerName || !vehicle) {
+    return json(
+      { error: "bad_request", detail: "Name and vehicle are required." },
+      400,
+    );
+  }
+  if (!isValidKenyanPhone(phone)) {
+    return json(
+      { error: "bad_request", detail: "That phone number is not valid." },
+      400,
+    );
+  }
+
+  const paymentStatus = asTrimmedString(body.paymentStatus) as PaymentStatus;
+  if (!PAYMENT_STATUSES.includes(paymentStatus)) {
+    return json(
+      { error: "bad_request", detail: "Unknown payment status." },
+      400,
+    );
+  }
+
+  /* ---- the slot, checked against the real diary ----
+
+     The date must be inside the booking window and the start time must be
+     a slot that actually exists on that day's grid AND is free. Checked
+     here rather than trusted, because a start time is just a string in a
+     request body: without this, a booking could be written for 03:00 on a
+     Sunday, and the staff view would show it as real. */
+  const date = asTrimmedString(body.date);
+  const startTime = asTrimmedString(body.startTime);
+
+  if (!getBookableDates().includes(date)) {
+    return json(
+      { error: "bad_request", detail: "That date is not open for booking." },
+      400,
+    );
+  }
+
+  let slots;
+  try {
+    slots = generateSlots(date, durationMinutes, await getBookedIntervals(date));
+  } catch (error) {
+    console.error("[api/bookings] slot lookup failed:", error);
+    return json({ error: "read_failed" }, 503);
+  }
+
+  const slot = slots.find((candidate) => candidate.startTime === startTime);
+  if (!slot) {
+    return json(
+      { error: "bad_request", detail: "That is not a valid start time." },
+      400,
+    );
+  }
+  if (!slot.available) {
+    return json({ error: "slot_taken" }, 409);
+  }
+
+  /* ---- write it ---- */
+  const input: NewBookingInput = {
+    vehicleTypeId,
+    // The column NAME is copied onto the record, not just its id. If the
+    // board is ever repainted with different wording, this booking keeps
+    // saying what the customer was actually quoted against.
+    vehicleTypeName: vehicleType.name,
+    lines,
+    priceKes,
+    durationMinutes,
+    date,
+    startTime: slot.startTime,
+    endTime: slot.endTime,
+    customerName,
+    phone,
+    vehicle,
+    notes,
+    paymentStatus,
+  };
+
+  let result;
+  try {
+    result = await createBooking(input);
+  } catch (error) {
+    console.error("[api/bookings] POST threw:", error);
+    return json({ error: "write_failed" }, 503);
+  }
+
+  if (result.ok) return json({ booking: result.booking }, 201);
+
+  /*
+    EVERY FAILURE BECOMES SOMETHING A CUSTOMER CAN ACT ON.
+
+    Never a raw database message: those name columns and constraints, they
+    mean nothing to somebody trying to book a car wash, and they describe
+    the inside of a system to whoever else is reading. The detail is logged
+    for whoever has to fix it; the customer gets a sentence.
+  */
+  if (result.reason === "slot_taken") {
+    return json({ error: "slot_taken" }, 409);
+  }
+
+  if (result.reason === "ref_exhausted") {
+    // Five collisions in a row is not bad luck, it is a broken generator.
+    console.error(
+      "[api/bookings] Ref generation exhausted after repeated collisions.",
+    );
+    return json({ error: "write_failed" }, 503);
+  }
+
+  console.error(
+    `[api/bookings] Write failed (${result.code ?? "no code"}): ${result.detail}`,
+  );
+  return json({ error: "write_failed" }, 503);
+}

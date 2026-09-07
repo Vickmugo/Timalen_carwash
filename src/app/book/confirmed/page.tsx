@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
+import { getBookingByRef } from "@/lib/bookings-db";
 import { BookingConfirmation } from "./BookingConfirmation";
 
 /**
@@ -16,14 +16,34 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function BookingConfirmedPage() {
+/**
+ * A SERVER COMPONENT NOW, and the Suspense wrapper is gone with the client
+ * hooks that needed it.
+ *
+ * This page used to read the booking out of localStorage, which meant it
+ * could only render in the browser, only after hydration, and only on the
+ * device that made the booking. All three are gone: the record is fetched
+ * here, on the server, straight through src/lib/bookings-db.ts with the
+ * service-role key — no HTTP hop through a route handler, because a server
+ * component calling into the database is already on the right side of the
+ * boundary.
+ *
+ * `dynamic` is forced because the answer depends entirely on a query
+ * string and on a table that changes every time somebody books.
+ */
+export const dynamic = "force-dynamic";
+
+export default async function BookingConfirmedPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ ref?: string }>;
+}) {
+  const { ref } = await searchParams;
+  const booking = ref ? await getBookingByRef(ref) : null;
+
   return (
     <div className="mx-auto max-w-2xl px-4 py-10">
-      <Suspense
-        fallback={<p className="text-slab-500">Loading your booking...</p>}
-      >
-        <BookingConfirmation />
-      </Suspense>
+      <BookingConfirmation booking={booking} />
     </div>
   );
 }

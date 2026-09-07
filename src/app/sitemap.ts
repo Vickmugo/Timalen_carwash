@@ -30,8 +30,8 @@ import { products } from "@/data/products";
  * listing a URL here while blocking it there asks a crawler to index a page
  * it has been told it may not fetch.
  *
- * NOTE: `business.siteUrl` is still a placeholder domain. Until it is real,
- * this file emits a valid sitemap for a site that is not yet published.
+ * Every URL here is absolute, built from `business.siteUrl` — the real
+ * registered domain. It changes there, never here.
  */
 export default function sitemap(): MetadataRoute.Sitemap {
   const base = business.siteUrl.replace(/\/$/, "");

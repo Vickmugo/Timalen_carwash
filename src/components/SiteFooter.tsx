@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   business,
   contactNumbers,
+  hasEmail,
   hasTillNumber,
   hoursSummary,
   telHref,
@@ -52,11 +53,25 @@ export function SiteFooter() {
                 </a>
               </li>
             ))}
-            <li>
-              <a href={`mailto:${business.email}`} className="hover:text-hivis">
-                {business.email}
-              </a>
-            </li>
+            {/*
+              Gated like the till block below. There is no confirmed email
+              yet, and a `mailto:` pointing at a placeholder is a dead drop
+              — the customer writes, nobody answers, and they read that as
+              being ignored rather than as a broken address. Two working
+              WhatsApp numbers sit directly above it, so the honest output
+              here is nothing. See the note on `email` in
+              src/data/business.ts.
+            */}
+            {hasEmail ? (
+              <li>
+                <a
+                  href={`mailto:${business.email}`}
+                  className="hover:text-hivis"
+                >
+                  {business.email}
+                </a>
+              </li>
+            ) : null}
           </ul>
         </div>
 

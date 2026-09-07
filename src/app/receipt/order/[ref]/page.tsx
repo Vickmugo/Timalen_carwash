@@ -24,5 +24,5 @@ export default async function OrderReceiptPage({
   params: Promise<{ ref: string }>;
 }) {
   const { ref } = await params;
-  return <Receipt kind="order" reference={ref} />;
+  return <Receipt reference={ref} />;
 }

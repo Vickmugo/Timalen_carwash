@@ -5,8 +5,9 @@
  * we're open" lives in this file. No component hardcodes any of it.
  *
  * TODO / CONFIRM WITH CLIENT — the trading name, the two phone numbers, the
- * till number and the town are confirmed. Still placeholder: the tagline,
- * the street/plot half of the address, the email and the domain.
+ * till number, the town and the domain are confirmed. Still missing: the
+ * tagline, the street/plot half of the address, and the email — which is
+ * now BLANK rather than fake; see the note on that field below.
  */
 
 import type { DayHours, WeekdayIndex } from "@/types";
@@ -165,8 +166,26 @@ export const business = {
   /** CONFIRMED. The primary line again, in wa.me form. */
   whatsapp: primaryContact.whatsapp,
 
-  /** TODO: replace or remove if the client has no email. */
-  email: "hello@example.co.ke",
+  /**
+   * NO CONFIRMED EMAIL — DELIBERATELY BLANK.
+   *
+   * This held "hello@example.co.ke", which SiteFooter published as a live
+   * `mailto:` link. That is worse than showing no email at all, on two
+   * counts. A customer who writes to it is talking to nobody and concludes
+   * the yard ignored them — a bounced enquiry is a lost one. And unlike
+   * example.com, which IANA reserves precisely so it can never resolve,
+   * nothing reserves example.co.ke: the address may deliver to a stranger.
+   *
+   * An address on the new domain is the obvious guess and is exactly the
+   * guess not to make. info@timalen.online is a mailbox nobody has told us
+   * exists, and inventing it fails the same silent way as the last one.
+   *
+   * So it stays empty, like `businessAddress.street` above and for the
+   * same reason. `hasEmail` below gates the footer line, which drops out
+   * whole rather than rendering a dead link. Fill this in and the line
+   * comes back; nothing else needs to change.
+   */
+  email: "",
 
   /**
    * M-PESA BUY GOODS TILL — SUPPLIED BY THE CLIENT.
@@ -190,15 +209,32 @@ export const business = {
   tillNumber: "9806711",
 
   /**
-   * TODO: replace with the real domain once one is registered.
+   * CONFIRMED — the registered domain.
    *
-   * Used as `metadataBase` and by app/sitemap.ts and app/robots.ts, all of
-   * which need absolute URLs. Until this is real, the sitemap and the
-   * canonical tags will point at a domain that does not exist — which is
-   * harmless while the site is unpublished, and MUST be fixed before it is.
+   * Read as `metadataBase` in src/app/layout.tsx, and as the base for
+   * app/sitemap.ts and app/robots.ts, all of which need absolute URLs.
+   * Every canonical tag, every sitemap entry and the Sitemap: line in
+   * robots.txt is built from this one string, so it has to match the
+   * origin the site is actually served from — scheme included, and `www.`
+   * included or omitted to match, because a search engine reads
+   * https://www.timalen.online as a different site from this one.
+   *
+   * NO TRAILING SLASH. sitemap.ts and robots.ts each strip one defensively
+   * while `new URL()` in layout.tsx does not, so a slash here would leave
+   * the three disagreeing about what the base looks like. Keep it bare.
    */
-  siteUrl: "https://timalen.example",
+  siteUrl: "https://timalen.online",
 } as const;
+
+/**
+ * True only when an email address has been supplied. Gates the mailto line
+ * in src/components/SiteFooter.tsx; see the note on `email` above.
+ *
+ * Same cast as `hasTillNumber` below, and for the same reason: `as const`
+ * pins `email` to a literal, and widening to `string` puts the check back
+ * at runtime, where it keeps working for whoever fills the field in.
+ */
+export const hasEmail: boolean = (business.email as string) !== "";
 
 /**
  * True only when a till number has been supplied. Gates the "Pay by M-Pesa"
