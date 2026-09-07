@@ -29,13 +29,11 @@
  */
 
 import { productCategories, products } from "@/data/products";
-import { flatPriceGroups, vehicleTypes, washPriceRows } from "@/data/services";
 import { formatKes, formatTimestamp } from "@/lib/format";
 import type {
   ChangeRequest,
   ChangeRequestKind,
   ChangeRequestStatus,
-  VehicleTypeId,
 } from "@/types";
 
 /* ------------------------------------------------------------------ */
@@ -75,9 +73,13 @@ export interface ChangeSubject {
   id: string;
   /** What the select shows and what gets stored on the request. */
   label: string;
-  /** `null` where the board cell has never been read. */
-  currentPriceKes: number | null;
-  /** e.g. "per piece". Empty for wash services, which are priced per job. */
+  /**
+   * e.g. "per piece".
+   *
+   * No `currentPriceKes` any more: a subject is only ever a product now,
+   * and the request kinds that remain do not quote a current price. The
+   * price editor reads live figures from the price book instead.
+   */
   unitLabel: string;
   /**
    * The name WITHOUT the vehicle column — "Body Wash" where `label` reads
@@ -100,74 +102,20 @@ export interface ChangeSubjectGroup {
 }
 
 /**
- * ONE VEHICLE COLUMN OF THE WASH BOARD.
+ * THE PRICE SUBJECTS ARE GONE — `washSubjectsFor`, `otherSubjectGroups`
+ * and `findSubject` with them.
  *
- * On this board a service does not have "a price" — Body Wash is 200 for a
- * saloon and 300 for a pick-up — so a subject is a CELL, not a row, and the
- * vehicle has to be settled before the price is.
+ * They existed to name a cell of the price board so a request could be
+ * raised against it. Prices are now edited directly in the staff view and
+ * take effect immediately, so there is nothing left to raise a request
+ * about; the two-step vehicle-then-service picker those functions fed was
+ * carried over to the price editor itself, which is where that interaction
+ * now belongs.
  *
- * That used to be done by flattening all eleven services against all three
- * columns into one thirty-three-option dropdown. It was correct and it was
- * unusable: a scrolling list where every item appears three times, on a
- * phone, in a yard. The customer-facing booking flow had already solved the
- * identical problem — pick the vehicle, then see that column's prices — and
- * having two different answers to one question in one codebase is worse
- * than either answer. See src/app/book/BookingFlow.tsx.
- *
- * UNREAD CELLS ARE INCLUDED, priced `null` and labelled as not listed.
- * They are the three services whose figures nobody could read off the
- * photographed board, which makes them the single most likely thing the
- * client will want to supply. Filtering them out would hide the exact rows
- * this tool exists to fix. (BookingFlow greys them out instead, because a
- * customer cannot book a price that does not exist — here, supplying that
- * price is the entire point of the request.)
+ * `stockSubjects` below survives because the stock question survives: the
+ * catalogue still has no out-of-stock field, and only a developer can add
+ * one.
  */
-export function washSubjectsFor(vehicleTypeId: VehicleTypeId): ChangeSubject[] {
-  const vehicle = vehicleTypes.find((type) => type.id === vehicleTypeId);
-  if (!vehicle) return [];
-
-  return washPriceRows.map((row) => ({
-    id: `wash:${row.id}:${vehicle.id}`,
-    label: `${row.name} - ${vehicle.name}`,
-    shortLabel: row.name,
-    currentPriceKes: row.prices[vehicle.id],
-    unitLabel: "",
-  }));
-}
-
-/**
- * Everything whose price does NOT depend on a vehicle column, grouped
- * exactly as it always was.
- *
- * Carpets, lorries, buses and motorbikes are one flat price each whatever
- * turns up, and a slab costs what a slab costs. Neither has a column to
- * pick first, so neither gained a step — these two groups are unchanged,
- * and together they are about ten options rather than thirty-three.
- */
-export function otherSubjectGroups(): ChangeSubjectGroup[] {
-  const flat: ChangeSubject[] = flatPriceGroups.flatMap((group) =>
-    group.rows.map((row) => ({
-      id: `flat:${group.id}:${row.id}`,
-      label: `${group.name} - ${row.name}`,
-      shortLabel: `${group.name} - ${row.name}`,
-      currentPriceKes: row.priceKes,
-      unitLabel: "",
-    })),
-  );
-
-  const catalogue: ChangeSubject[] = products.map((product) => ({
-    id: `product:${product.id}`,
-    label: product.name,
-    shortLabel: product.name,
-    currentPriceKes: product.priceKes,
-    unitLabel: product.unitLabel,
-  }));
-
-  return [
-    { label: "Other wash work", subjects: flat },
-    { label: "Concrete products", subjects: catalogue },
-  ];
-}
 
 /**
  * The stock question is a PRODUCTS question only.
@@ -181,32 +129,8 @@ export function stockSubjects(): ChangeSubject[] {
     id: product.id,
     label: product.name,
     shortLabel: product.name,
-    currentPriceKes: product.priceKes,
     unitLabel: product.unitLabel,
   }));
-}
-
-/**
- * Looks a subject up wherever it lives. Undefined if the id is stale.
- *
- * Searches every vehicle column as well as the two flat groups, so it does
- * not depend on which step the caller happens to be on — and so an id saved
- * before this form was split in two still resolves. Subject ids did not
- * change when it was: a "wash:body-wash:saloon" written by the old flat
- * dropdown is the same string this one produces.
- */
-export function findSubject(id: string): ChangeSubject | undefined {
-  for (const vehicle of vehicleTypes) {
-    const hit = washSubjectsFor(vehicle.id).find(
-      (subject) => subject.id === id,
-    );
-    if (hit) return hit;
-  }
-  for (const group of otherSubjectGroups()) {
-    const hit = group.subjects.find((subject) => subject.id === id);
-    if (hit) return hit;
-  }
-  return undefined;
 }
 
 /* ------------------------------------------------------------------ */
@@ -214,7 +138,6 @@ export function findSubject(id: string): ChangeSubject | undefined {
 /* ------------------------------------------------------------------ */
 
 const kindLabels: Record<ChangeRequestKind, string> = {
-  price: "Price change",
   new_item: "New product or service",
   stock: "Stock",
 };
@@ -248,12 +171,6 @@ export function categoryLabel(
   return otherCategory.trim()
     ? `${otherCategory.trim()} (new category)`
     : "New category, not described";
-}
-
-/** "KES 550 per piece", or an honest blank. */
-function priceWithUnit(price: number | null, unitLabel: string): string {
-  if (price === null) return "not listed";
-  return unitLabel ? `${formatKes(price)} ${unitLabel}` : formatKes(price);
 }
 
 /* ------------------------------------------------------------------ */
@@ -291,18 +208,6 @@ export function requestText(request: ChangeRequest): string {
   ];
 
   switch (request.kind) {
-    case "price": {
-      lines.push(
-        `Item: ${request.subjectLabel}`,
-        `Current price: ${
-          request.currentPriceKes === null
-            ? "not listed on the site"
-            : formatKes(request.currentPriceKes)
-        }`,
-        `Proposed price: ${formatKes(request.proposedPriceKes)}`,
-      );
-      break;
-    }
     case "new_item": {
       lines.push(
         `Item: ${request.name}`,
@@ -385,5 +290,5 @@ export function subjectOptionLabel(
   short = false,
 ): string {
   const name = short ? subject.shortLabel : subject.label;
-  return `${name} — ${priceWithUnit(subject.currentPriceKes, subject.unitLabel)}`;
+  return subject.unitLabel ? `${name} — ${subject.unitLabel}` : name;
 }

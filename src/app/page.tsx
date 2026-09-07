@@ -3,11 +3,9 @@ import { ButtonLink } from "@/components/Button";
 import { PropertyCarousel } from "@/components/PropertyCarousel";
 import { business, hoursSummary } from "@/data/business";
 import { productCategories } from "@/data/products";
-import {
-  cheapestConfirmedPriceKes,
-  vehicleTypes,
-  washPriceRows,
-} from "@/data/services";
+import { vehicleTypes, washPriceRows } from "@/data/services";
+import { cheapestConfirmedPriceKes, washPrice } from "@/lib/prices";
+import { getPriceBook } from "@/lib/prices-db";
 import { formatKes } from "@/lib/format";
 
 /**
@@ -41,8 +39,15 @@ import { formatKes } from "@/lib/format";
  */
 const HOME_ROW_LIMIT = 3;
 
-export default function HomePage() {
-  const fromKes = cheapestConfirmedPriceKes();
+/**
+ * Per request rather than prerendered — the summary table and the "from
+ * KES" line both read live prices now. See the note on /prices.
+ */
+export const dynamic = "force-dynamic";
+
+export default async function HomePage() {
+  const priceBook = await getPriceBook();
+  const fromKes = cheapestConfirmedPriceKes(priceBook);
 
   /*
     Only rows priced in every column. A summary table with "ask at the yard"
@@ -50,7 +55,11 @@ export default function HomePage() {
     and all, is one link away on /prices.
   */
   const homeRows = washPriceRows
-    .filter((row) => vehicleTypes.every((type) => row.prices[type.id] !== null))
+    .filter((row) =>
+      vehicleTypes.every(
+        (type) => washPrice(priceBook, row.id, type.id) !== null,
+      ),
+    )
     .slice(0, HOME_ROW_LIMIT);
 
   return (
@@ -202,7 +211,7 @@ export default function HomePage() {
                       className="px-3 py-2.5 text-sm font-bold"
                       data-label={type.name}
                     >
-                      {formatKes(row.prices[type.id] as number)}
+                      {formatKes(washPrice(priceBook, row.id, type.id) as number)}
                     </td>
                   ))}
                 </tr>

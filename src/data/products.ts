@@ -10,14 +10,21 @@
  * ---------------------------------------------------------------------
  * THE PHOTOS ARE REAL. THE NUMBERS ARE NOT.
  * ---------------------------------------------------------------------
- * Every `priceKes`, every dimension in `specs`, and every lead time below
- * is still the same placeholder guess it was before the photography
- * landed. Real photographs sitting next to invented figures is exactly the
- * trap: the page now looks confirmed, and it is not. Nothing here may be
- * quoted to a customer until the client has been asked.
+ * Every dimension in `specs` and every lead time below is still the same
+ * placeholder guess it was before the photography landed. Real photographs
+ * sitting next to invented figures is exactly the trap: the page now looks
+ * confirmed, and it is not. Nothing here may be quoted to a customer until
+ * the client has been asked.
  *
  * Each guessed value is marked inline. Do not remove a marker without
  * having actually confirmed that value.
+ *
+ * PRICES ARE NO LONGER IN THIS FILE. They moved to `product_prices` in the
+ * database so the yard can correct them from the staff view without a
+ * deploy — see supabase/migrations/20260907150000_price_tables.sql. The
+ * figures seeded there are the SAME five placeholders that used to sit
+ * here, and moving them has not made any of them true. What changed is
+ * only that fixing one no longer needs a developer.
  * ---------------------------------------------------------------------
  *
  * NOT YET LISTED — pending real content.
@@ -155,7 +162,6 @@ export const products: Product[] = [
     description:
       "Reinforced concrete posts cast on site and pre-drilled for the fencing wire. Cured in the open yard and sold straight off the stack.",
     unitLabel: "per piece",
-    priceKes: 750, // PLACEHOLDER PRICE — not confirmed with client
     status: "ready_to_ship",
     quoteOnly: false,
     specs: [
@@ -180,7 +186,6 @@ export const products: Product[] = [
     description:
       "Flat rectangular slabs for footpaths, drain and channel covers, and standing bases for tanks. Stacked on edge in the yard.",
     unitLabel: "per piece",
-    priceKes: 550, // PLACEHOLDER PRICE — not confirmed with client
     status: "ready_to_ship",
     quoteOnly: false,
     specs: [
@@ -204,7 +209,6 @@ export const products: Product[] = [
     description:
       "Turned balusters for balcony and staircase railings, cast in the yard's own moulds and left to cure on the grass. Each one comes with the fixing pin already set into the cap.",
     unitLabel: "per piece",
-    priceKes: 320, // PLACEHOLDER PRICE — not confirmed with client
     status: "ready_to_ship",
     quoteOnly: false,
     specs: [
@@ -231,7 +235,6 @@ export const products: Product[] = [
     description:
       "Square caps with a shallow pyramid top, cast with a centre hole for a light or a finial. They finish a gate pillar and shed rain off the column head.",
     unitLabel: "per piece",
-    priceKes: 900, // PLACEHOLDER PRICE — not confirmed with client
     status: "ready_to_ship",
     quoteOnly: false,
     specs: [
@@ -255,7 +258,6 @@ export const products: Product[] = [
     description:
       "Heavy chamfered kerbs for roadsides, driveway edges and parking bays. They hold a paved surface in place and stop the edge creeping outward.",
     unitLabel: "per piece",
-    priceKes: 680, // PLACEHOLDER PRICE — not confirmed with client
     status: "ready_to_ship",
     quoteOnly: false,
     specs: [

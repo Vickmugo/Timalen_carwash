@@ -6,13 +6,25 @@ import { ButtonLink } from "@/components/Button";
 import { PageHeader } from "@/components/PageHeader";
 import { ProductGallery } from "@/components/ProductGallery";
 import { quoteRules } from "@/data/config";
-import { getProduct, products } from "@/data/products";
+import { getProduct } from "@/data/products";
 import { formatKes } from "@/lib/format";
+import { productPrice } from "@/lib/prices";
+import { getPriceBook } from "@/lib/prices-db";
 import { AddToCart } from "./AddToCart";
 
-export function generateStaticParams() {
-  return products.map((product) => ({ slug: product.slug }));
-}
+/**
+ * NO `generateStaticParams` ANY MORE, and the page is explicitly dynamic.
+ *
+ * These five pages used to be prerendered at build time, which was right
+ * while a product's price was a compiled constant. It is a row now, edited
+ * from the staff view, and a prerendered product page is a page showing a
+ * price the checkout will not honour. Static generation and live editing
+ * are mutually exclusive here; the brief asked for live editing.
+ *
+ * Unknown slugs behave exactly as before — `getProduct` returns undefined
+ * and the page calls `notFound()`.
+ */
+export const dynamic = "force-dynamic";
 
 /**
  * Per-product metadata.
@@ -76,6 +88,9 @@ export default async function ProductPage({
   const product = getProduct(slug);
   if (!product) notFound();
 
+  const priceBook = await getPriceBook();
+  const priceKes = productPrice(priceBook, product.id);
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
       {/*
@@ -111,13 +126,26 @@ export default async function ProductPage({
 
           <p className="mt-4 text-slab-700">{product.description}</p>
 
-          {product.quoteOnly ? (
+          {/*
+            TWO WAYS TO HAVE NO PRICE, AND THEY ARE NOT THE SAME THING.
+
+            `quoteOnly` means the item is priced per job by design — bespoke
+            work that genuinely has no list price. A null in the price book
+            means nobody has confirmed a figure for a product that ought to
+            have one. Both end up here, because in both cases the honest
+            answer is "ask us", and neither may be put in a basket. The
+            wording distinguishes them: telling a customer their fencing
+            post is bespoke would be false.
+          */}
+          {product.quoteOnly || priceKes === null ? (
             <div className="mt-6 rounded-slab border-2 border-hivis bg-hivis-tint p-4">
-              <h2 className="text-base">Priced by quote</h2>
+              <h2 className="text-base">
+                {product.quoteOnly ? "Priced by quote" : "Price not listed"}
+              </h2>
               <p className="mt-2 text-sm text-slab-800">
-                This one is made to your pattern and measurements, so there is
-                no list price. Send us the details and we will come back with a
-                figure.
+                {product.quoteOnly
+                  ? "This one is made to your pattern and measurements, so there is no list price. Send us the details and we will come back with a figure."
+                  : "We have not published a price for this item yet. Send us the details, or ring the yard, and we will tell you what it costs."}
               </p>
               <ButtonLink
                 href={`/quote?product=${product.slug}`}
@@ -132,7 +160,7 @@ export default async function ProductPage({
             <>
               <div className="mt-6 flex items-baseline gap-2">
                 <span className="text-3xl font-extrabold">
-                  {formatKes(product.priceKes)}
+                  {formatKes(priceKes)}
                 </span>
                 <span className="text-sm text-slab-500">
                   {product.unitLabel}
@@ -140,7 +168,7 @@ export default async function ProductPage({
               </div>
               {/* PLACEHOLDER PRICE — see the header note in src/data/products.ts */}
 
-              <AddToCart product={product} />
+              <AddToCart product={product} priceKes={priceKes} />
 
               <p className="mt-4 text-sm text-slab-600">
                 Need more than {quoteRules.maxUnitsPerLine}?{" "}

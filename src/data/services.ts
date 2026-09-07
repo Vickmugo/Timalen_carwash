@@ -2,9 +2,12 @@
  * =====================================================================
  * THE WASH PRICE BOARD
  * ---------------------------------------------------------------------
- * The painted board in the wash bay, transcribed from a photo. It is the
- * only source of wash pricing in this project, and /book, /prices and the
- * home page all read from it.
+ * The painted board in the wash bay, transcribed from a photo. This file
+ * holds the board's STRUCTURE — which services exist, their ids, the
+ * wording painted on the wall, and the order of the rows. The PRICES moved
+ * to the database (`service_prices` / `flat_prices`) so the yard can edit
+ * them from the staff view without a deploy; read them through
+ * src/lib/prices.ts. /book, /prices and the home page combine the two.
  *
  * The three flat tiers that used to live here — "Exterior Wash", "Full
  * Wash + Vacuum", "Wash + Wax" — are GONE. They were invented before
@@ -65,9 +68,7 @@
 
 import type {
   FlatPriceGroup,
-  PriceCell,
   VehicleType,
-  VehicleTypeId,
   WashPriceRow,
 } from "@/types";
 
@@ -83,106 +84,32 @@ export const vehicleTypes: VehicleType[] = [
 ];
 
 /**
- * The grid, in board order.
+ * The grid, in board order. STRUCTURE ONLY — THE PRICES ARE NOT HERE.
  *
- * Eight rows read with confidence; three rows — Interior Wash, Complete
- * Wash, Buffing — sit in a band of the photo that was too skewed and too
- * compressed to read, so all nine of their cells are `null`. They are kept
- * in place rather than dropped, because their POSITION on the board is
- * known even where their prices are not, and deleting them would lose that
- * along with the fact that they are missing at all.
+ * Every figure moved to `service_prices` in the database, where the yard
+ * edits it directly from the staff view (see
+ * supabase/migrations/20260907150000_price_tables.sql). What remains is
+ * the part that is not the yard's to change from a web form: each row's
+ * id, the board's own wording, the order they are painted in, and what a
+ * row is known to subsume.
+ *
+ * All eleven rows are listed, including the three — Interior Wash,
+ * Complete Wash, Buffing — whose cells nobody has read. Their POSITION on
+ * the board is known even where their prices are not, and dropping them
+ * would lose that along with the fact that they are missing at all. They
+ * are seeded as null cells rather than absent rows, so the staff view can
+ * offer them to be filled in.
  */
 export const washPriceRows: WashPriceRow[] = [
-  {
-    id: "body-wash",
-    name: "Body Wash",
-    prices: {
-      saloon: 200, // board
-      "family-car": 300, // board
-      pickup: 300, // board
-    },
-  },
-  {
-    id: "engine-wash",
-    name: "Engine Wash",
-    prices: {
-      saloon: 200, // board
-      // board - reads 900, which is well above the Pick-up cell beside it.
-      // Recorded as read; see `nonMonotonicRows`.
-      "family-car": 900,
-      pickup: 300, // board
-    },
-  },
-  {
-    id: "under-wash",
-    name: "Under Wash",
-    prices: {
-      saloon: 250, // board
-      "family-car": 600, // board
-      pickup: 600, // board
-    },
-  },
-  {
-    id: "dry-vacuum",
-    name: "Dry Vacuum",
-    prices: {
-      // board - reads 500, above both larger vehicles. Recorded as read;
-      // see `nonMonotonicRows`.
-      saloon: 500,
-      "family-car": 200, // board
-      pickup: 300, // board
-    },
-  },
-  {
-    id: "wet-vacuum",
-    name: "Wet Vacuum",
-    prices: {
-      saloon: 150, // board
-      "family-car": 300, // board
-      pickup: 1200, // board
-    },
-  },
-  {
-    id: "polishing",
-    name: "Polishing",
-    prices: {
-      saloon: 200, // board
-      "family-car": 1200, // board
-      pickup: 2000, // board
-    },
-  },
-  {
-    id: "roof-wash",
-    name: "Roof Wash",
-    prices: {
-      saloon: 1000, // board
-      "family-car": 2000, // board
-      pickup: 2500, // board
-    },
-  },
-  {
-    id: "seat-wash",
-    name: "Seat Wash",
-    prices: {
-      saloon: 1500, // board
-      // board - reads 2500, above the Pick-up cell beside it. Recorded as
-      // read; see `nonMonotonicRows`.
-      "family-car": 2500,
-      pickup: 2000, // board
-    },
-  },
-  {
-    id: "interior-wash",
-    name: "Interior Wash",
-    prices: {
-      // NOT READ - this band of the board was too skewed and compressed in
-      // the photo to read any of the three columns. Needs a clearer photo
-      // or in-person confirmation. No guess is recorded in its place.
-      saloon: null,
-      "family-car": null, // NOT READ - same band, same reason
-      pickup: null, // NOT READ - same band, same reason
-    },
-  },
+  { id: "body-wash", name: "Body Wash" },
+  { id: "engine-wash", name: "Engine Wash" },
+  { id: "under-wash", name: "Under Wash" },
+  { id: "dry-vacuum", name: "Dry Vacuum" },
+  { id: "wet-vacuum", name: "Wet Vacuum" },
+  { id: "polishing", name: "Polishing" },
+  { id: "roof-wash", name: "Roof Wash" },
+  { id: "seat-wash", name: "Seat Wash" },
+  { id: "interior-wash", name: "Interior Wash" },
   {
     id: "complete-wash",
     name: "Complete Wash",
@@ -201,26 +128,16 @@ export const washPriceRows: WashPriceRow[] = [
       `subsumes` in src/types/index.ts and `subsumption` in
       src/lib/booking.ts.
 
-      Inert today either way: this row has no price, so it cannot be
-      selected at all.
+      Inert while this row has no price in any column, since it cannot then
+      be selected at all — but that is now a fact about the database rather
+      than about this file, and the yard can change it from the staff view
+      at any time. The warning above is live code, not a dormant branch.
     */
     subsumes: null,
-    prices: {
-      saloon: null, // NOT READ - same illegible band as Interior Wash
-      "family-car": null, // NOT READ - same illegible band
-      pickup: null, // NOT READ - same illegible band
-    },
   },
-  {
-    id: "buffing",
-    name: "Buffing",
-    prices: {
-      saloon: null, // NOT READ - same illegible band as Interior Wash
-      "family-car": null, // NOT READ - same illegible band
-      pickup: null, // NOT READ - same illegible band
-    },
-  },
+  { id: "buffing", name: "Buffing" },
 ];
+
 
 /**
  * The confirmed rows where a smaller vehicle is priced ABOVE a larger one.
@@ -248,93 +165,72 @@ export const nonMonotonicRows: string[] = [
 /**
  * The rest of the board: items charged as a single figure regardless of
  * vehicle size, in the groups the board itself paints them in.
+ *
+ * Structure only, like the grid above. The figures live in `flat_prices`.
  */
 export const flatPriceGroups: FlatPriceGroup[] = [
   {
     id: "carpets",
     name: "Carpets",
     rows: [
-      { id: "carpet-small", name: "Small", priceKes: 500 }, // board
+      { id: "carpet-small", name: "Small" },
       /*
-        board - BOTH READ AS 1000, and that may be one figure spanning two
-        rows rather than two equal figures. Recorded as the board reads.
-
-        The alternative was to treat "Large" as unread and null it, or to
-        invent a higher number for it. Both are worse: 1000 is what is
-        painted next to Large, and splitting it into a guessed 1200 would
-        put an invented price on the site under the heading of a
-        transcription. If a clearer photo shows a single merged cell, the
-        fix is to merge these two rows, not to change either number.
+        Medium and Large both read 1000 on the board, which may be one
+        figure spanning two rows rather than two equal figures. Both are
+        seeded as read. If a clearer photo shows a single merged cell, the
+        fix is to MERGE THESE TWO ROWS here — a structural change, which is
+        why the note stays in this file even though the numbers left it.
       */
-      { id: "carpet-medium", name: "Medium", priceKes: 1000 },
-      { id: "carpet-large", name: "Large", priceKes: 1000 },
-      {
-        id: "carpet-sofa-set",
-        name: "Sofa Set",
-        // NOT READ - no legible value; this row looks cropped out of the
-        // frame rather than illegible in it. Needs a photo that includes
-        // the bottom of the carpets block, or in-person confirmation.
-        priceKes: null,
-      },
+      { id: "carpet-medium", name: "Medium" },
+      { id: "carpet-large", name: "Large" },
+      // Cropped out of frame rather than illegible in it; seeded null.
+      { id: "carpet-sofa-set", name: "Sofa Set" },
     ],
   },
   {
     id: "lorries",
     name: "Lorries",
     rows: [
-      { id: "lorry-canter", name: "Canter", priceKes: 400 }, // board
-      { id: "lorry-pr", name: "P.R.", priceKes: 500 }, // board
-      { id: "lorry-fsr", name: "F.S.R.", priceKes: 600 }, // board
+      { id: "lorry-canter", name: "Canter" },
+      { id: "lorry-pr", name: "P.R." },
+      { id: "lorry-fsr", name: "F.S.R." },
     ],
   },
   {
     id: "buses",
     name: "Buses",
     rows: [
-      { id: "bus-mini", name: "Mini Bus", priceKes: 400 }, // board
-      {
-        id: "bus-full",
-        name: "Bus",
-        // NOT READ - no legible value, likely cropped out of frame. Needs a
-        // clearer photo or in-person confirmation.
-        priceKes: null,
-      },
+      { id: "bus-mini", name: "Mini Bus" },
+      // Likely cropped out of frame; seeded null.
+      { id: "bus-full", name: "Bus" },
     ],
   },
   {
     id: "motorbikes",
     name: "Motorbike",
-    rows: [{ id: "motorbike", name: "Motorbike", priceKes: 100 }], // board
+    rows: [{ id: "motorbike", name: "Motorbike" }],
   },
 ];
+
 
 /* ------------------------------------------------------------------ */
 /* Lookups                                                             */
 /* ------------------------------------------------------------------ */
 
 /**
- * The board read at one cell: a real KES figure, or `null` for a cell
- * nobody has transcribed yet.
+ * WHERE THE PRICE LOOKUPS WENT.
  *
- * Every price the booking flow shows goes through here, which is what
- * makes "an unread cell can never be charged" a property of the code
- * rather than a habit — there is no second path that reads `row.prices`
- * directly and forgets the null.
+ * `priceFor`, `isBookable` and `cheapestConfirmedPriceKes` used to live
+ * here, reading numbers straight off the rows above. The numbers are in
+ * the database now, so their replacements take a `PriceBook` and live in
+ * src/lib/prices.ts — `washPrice`, `isBookable`, `flatPrice`,
+ * `productPrice`, `cheapestConfirmedPriceKes`.
+ *
+ * That file is deliberately pure and free of any database import, so the
+ * booking picker in the browser and the route handler that prices the
+ * booking for real run the same lookup over the same book. What stays
+ * here is what this file is still the source of truth for: structure.
  */
-export function priceFor(
-  row: WashPriceRow,
-  vehicleTypeId: VehicleTypeId,
-): PriceCell {
-  return row.prices[vehicleTypeId];
-}
-
-/** True when this service can be booked online for this vehicle type. */
-export function isBookable(
-  row: WashPriceRow,
-  vehicleTypeId: VehicleTypeId,
-): boolean {
-  return priceFor(row, vehicleTypeId) !== null;
-}
 
 export function getWashPriceRow(id: string): WashPriceRow | undefined {
   return washPriceRows.find((row) => row.id === id);
@@ -342,22 +238,4 @@ export function getWashPriceRow(id: string): WashPriceRow | undefined {
 
 export function getVehicleType(id: string): VehicleType | undefined {
   return vehicleTypes.find((type) => type.id === id);
-}
-
-/**
- * The cheapest confirmed figure anywhere on the grid, for the home page's
- * "from KES ..." line.
- *
- * Computed rather than typed out. A hardcoded "from 200" is a number that
- * goes quietly wrong the first time a cell is corrected, and it would be
- * the one price on the site nothing could trace back to the board.
- *
- * Returns null if the grid somehow has no confirmed cell at all, so the
- * caller has to decide what to say rather than printing "from KES 0".
- */
-export function cheapestConfirmedPriceKes(): number | null {
-  const prices = washPriceRows
-    .flatMap((row) => vehicleTypes.map((type) => priceFor(row, type.id)))
-    .filter((price): price is number => price !== null);
-  return prices.length > 0 ? Math.min(...prices) : null;
 }

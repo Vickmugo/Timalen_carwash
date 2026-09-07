@@ -8,7 +8,19 @@ import type { Product } from "@/types";
 import { addItem } from "@/lib/cart";
 import { formatKes } from "@/lib/format";
 
-export function AddToCart({ product }: { product: Product }) {
+/**
+  * `priceKes` comes from the page's price book. Null is not accepted here:
+  * a product with no confirmed price is not offered with an add-to-cart
+  * control at all — see the guard in page.tsx — because a basket cannot
+  * hold "price not listed".
+  */
+export function AddToCart({
+  product,
+  priceKes,
+}: {
+  product: Product;
+  priceKes: number;
+}) {
   const [quantity, setQuantity] = useState(1);
   const [added, setAdded] = useState(false);
 
@@ -17,7 +29,7 @@ export function AddToCart({ product }: { product: Product }) {
   const willNeedQuote = quantity > quoteRules.maxUnitsPerLine;
 
   function handleAdd() {
-    addItem(product, quantity);
+    addItem(product, priceKes, quantity);
     setAdded(true);
   }
 
@@ -68,7 +80,7 @@ export function AddToCart({ product }: { product: Product }) {
         <p className="pb-3 text-sm text-slab-600">
           Subtotal{" "}
           <span className="font-bold text-slab-900">
-            {formatKes(product.priceKes * quantity)}
+            {formatKes(priceKes * quantity)}
           </span>
         </p>
       </div>

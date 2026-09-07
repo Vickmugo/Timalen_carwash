@@ -53,12 +53,9 @@ import { TextAreaField, TextField } from "@/components/Field";
 import { Stepper } from "@/components/Stepper";
 import { WEEKDAY_SHORT } from "@/data/business";
 import { bookingConfig, paymentConfig } from "@/data/config";
-import {
-  priceFor,
-  vehicleTypes,
-  washPriceRows,
-} from "@/data/services";
-import type { PaymentStatus, VehicleTypeId } from "@/types";
+import { vehicleTypes, washPriceRows } from "@/data/services";
+import { washPrice } from "@/lib/prices";
+import type { PaymentStatus, PriceBook, VehicleTypeId } from "@/types";
 import {
   formatDuration,
   formatKes,
@@ -82,7 +79,21 @@ const STEPS = ["Wash", "Time", "Details", "Payment"];
 /** Every booking holds the bay for this long. Placeholder — see config. */
 const DURATION = bookingConfig.placeholderWashDurationMinutes;
 
-export function BookingFlow() {
+/**
+ * `priceBook` ARRIVES AS A PROP, fetched by the server component in
+ * page.tsx. This is a client component: it has no database credentials and
+ * must never have any, so the figures are handed to it already read.
+ *
+ * What it renders is therefore a snapshot — the prices as they stood when
+ * the page was served. That is fine for showing a customer what things
+ * cost, and it is deliberately NOT what they get charged: /api/bookings
+ * re-reads the book at submit time and computes the total itself. If the
+ * yard edits a price while somebody is mid-booking, the figure on their
+ * screen may be stale for a minute; the figure on their receipt will not
+ * be. Both sides run the same `toLines` over the same shape, so the two
+ * agree whenever the book has not moved underneath them.
+ */
+export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
   const router = useRouter();
 
   const [step, setStep] = useState(0);
@@ -142,11 +153,11 @@ export function BookingFlow() {
   );
 
   const totalKes = vehicleTypeId
-    ? selectionTotalKes(washPriceRows, chargeable, vehicleTypeId)
+    ? selectionTotalKes(washPriceRows, priceBook, chargeable, vehicleTypeId)
     : 0;
 
   const lines = vehicleTypeId
-    ? toLines(washPriceRows, chargeable, vehicleTypeId)
+    ? toLines(washPriceRows, priceBook, chargeable, vehicleTypeId)
     : [];
 
   function toggleService(id: string) {
@@ -176,7 +187,7 @@ export function BookingFlow() {
       const next = new Set<string>();
       for (const serviceId of current) {
         const row = washPriceRows.find((entry) => entry.id === serviceId);
-        if (row && priceFor(row, id) !== null) next.add(serviceId);
+        if (row && washPrice(priceBook, row.id, id) !== null) next.add(serviceId);
       }
       return next;
     });
@@ -467,7 +478,7 @@ export function BookingFlow() {
                     key={row.id}
                     id={row.id}
                     name={row.name}
-                    priceKes={priceFor(row, vehicleTypeId)}
+                    priceKes={washPrice(priceBook, row.id, vehicleTypeId)}
                     checked={selectedIds.has(row.id)}
                     coveredBy={covered.get(row.id)}
                     onToggle={() => toggleService(row.id)}

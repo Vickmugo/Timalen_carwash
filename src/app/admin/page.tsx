@@ -67,8 +67,8 @@ import {
 import { Button } from "@/components/Button";
 import { PageHeader } from "@/components/PageHeader";
 import { adminUsers, UNATTRIBUTED } from "@/data/admin-users";
+import { PriceEditor } from "./PriceEditor";
 import { productCategories } from "@/data/products";
-import { vehicleTypes } from "@/data/services";
 import type {
   Booking,
   ChangeRequest,
@@ -80,20 +80,15 @@ import type {
   QuoteRequest,
   QuoteStatus,
   StatusChange,
-  VehicleTypeId,
 } from "@/types";
 import {
   NOT_LIVE_BANNER,
   NOT_LIVE_CARD,
   categoryLabel,
   changeStatusLabel,
-  findSubject,
   kindLabel,
-  otherSubjectGroups,
   requestText,
   stockSubjects,
-  subjectOptionLabel,
-  washSubjectsFor,
   whatsappDraftUrl,
 } from "@/lib/change-requests";
 import {
@@ -134,7 +129,6 @@ const QUOTE_STATUSES: QuoteStatus[] = ["new", "contacted", "quoted", "closed"];
 const CHANGE_REQUEST_STATUSES: ChangeRequestStatus[] = ["draft", "sent"];
 
 const CHANGE_REQUEST_KINDS: ChangeRequestKind[] = [
-  "price",
   "new_item",
   "stock",
 ];
@@ -1277,6 +1271,23 @@ export default function AdminPage() {
             )}
           </Section>
 
+          {/* ---------------------------- Prices ---------------------------- */}
+          {/*
+            ABOVE the change requests, and that ordering is the point. This
+            is the section that actually changes the site; the one below is
+            for the two things staff still cannot do themselves. Somebody
+            arriving to fix a price should meet the editor first.
+          */}
+          <Section
+            id="admin-prices"
+            title="Prices"
+            counts={["live — saved changes apply immediately"]}
+            sort={null}
+            filter={null}
+          >
+            <PriceEditor />
+          </Section>
+
           <ChangeRequestsSection />
 
           <div className="mt-10 border-t-2 border-slab-200 pt-6">
@@ -1762,7 +1773,7 @@ function KindPicker({
  * in a row, not one.
  */
 function ChangeRequestForm() {
-  const [kind, setKind] = useState<ChangeRequestKind>("price");
+  const [kind, setKind] = useState<ChangeRequestKind>("new_item");
   const [error, setError] = useState<string | null>(null);
   const [savedRef, setSavedRef] = useState<string | null>(null);
 
@@ -1771,18 +1782,10 @@ function ChangeRequestForm() {
   const [price, setPrice] = useState("");
 
   /*
-    Price change, in two steps.
-
-    `scope` is step one: one of the three vehicle columns of the wash board,
-    or "other" for the work that has no column. NO DEFAULT — the same
-    decision BookingFlow makes about vehicle type, for the same reason. On
-    this board Body Wash is 200 for a saloon and 300 for a pick-up, so a
-    column left on whatever happened to be selected first prices the request
-    against the wrong one, and the person reading it downstream has no way
-    to tell.
+    NO PRICE SCOPE OR SUBJECT STATE ANY MORE. The two-step
+    vehicle-then-service picker moved to the price editor, which edits the
+    real figure instead of asking somebody else to change it.
   */
-  const [scope, setScope] = useState<VehicleTypeId | "other" | null>(null);
-  const [subjectId, setSubjectId] = useState("");
 
   // New item.
   const [name, setName] = useState("");
@@ -1799,33 +1802,9 @@ function ChangeRequestForm() {
     "out_of_stock",
   );
 
-  // These read the catalogue, which is compiled in and cannot change while
-  // the page is open. Computed once rather than on every keystroke.
-  const otherGroups = useMemo(() => otherSubjectGroups(), []);
+  // Reads the catalogue, which is compiled in and cannot change while the
+  // page is open. Computed once rather than on every keystroke.
   const stockOptions = useMemo(() => stockSubjects(), []);
-
-  /** Step two's options: one vehicle's column, or nothing until one is picked. */
-  const washOptions = useMemo(
-    () => (scope && scope !== "other" ? washSubjectsFor(scope) : []),
-    [scope],
-  );
-
-  /**
-   * Changing the column CLEARS the chosen service, rather than trying to
-   * carry it across.
-   *
-   * Carrying it would be the friendlier-looking behaviour and it is the
-   * dangerous one: "Body Wash" exists in all three columns at three
-   * different prices, so silently re-pointing the selection at the new
-   * column would leave a proposed figure that was typed against the old one
-   * still sitting in the price field. Better to make the person choose
-   * again than to change what they are proposing without telling them.
-   */
-  function chooseScope(next: VehicleTypeId | "other") {
-    setScope(next);
-    setSubjectId("");
-    setError(null);
-  }
 
   /**
    * Whole shillings or nothing.
@@ -1844,8 +1823,6 @@ function ChangeRequestForm() {
   function resetFields() {
     setNote("");
     setPrice("");
-    setScope(null);
-    setSubjectId("");
     setName("");
     setCategoryId(productCategories[0].id);
     setOtherCategory("");
@@ -1868,30 +1845,7 @@ function ChangeRequestForm() {
 
     let request: ChangeRequest;
 
-    if (kind === "price") {
-      if (scope === null) {
-        setError("Pick which price list this is on.");
-        return;
-      }
-      const subject = findSubject(subjectId);
-      if (!subject) {
-        setError("Pick which item or service the price is for.");
-        return;
-      }
-      const proposed = readPrice();
-      if (proposed === null) {
-        setError("Enter the proposed price in whole shillings.");
-        return;
-      }
-      request = {
-        ...base,
-        kind: "price",
-        subjectId: subject.id,
-        subjectLabel: subject.label,
-        currentPriceKes: subject.currentPriceKes,
-        proposedPriceKes: proposed,
-      };
-    } else if (kind === "new_item") {
+    if (kind === "new_item") {
       if (!name.trim()) {
         setError("Give the new item a name.");
         return;
@@ -1950,126 +1904,6 @@ function ChangeRequestForm() {
       </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        {kind === "price" ? (
-          <>
-            {/*
-              STEP ONE: WHICH PRICE LIST.
-
-              The three vehicle columns of the wash board, then everything
-              that has no column. Chips rather than a dropdown, in the same
-              order and with the same names BookingFlow uses, because this
-              is the identical question asked of the customer one page over
-              and it should not have two different answers in one codebase.
-
-              What this replaced was a single thirty-three-option list —
-              eleven services times three columns — which was correct and
-              unusable: every service appeared three times, and finding
-              "Body Wash - Pick-up" meant scrolling past two other Body
-              Washes on a phone.
-            */}
-            <div className="sm:col-span-2">
-              <span className={formLabel}>Which price list</span>
-              <div
-                role="group"
-                aria-label="Which price list"
-                className="no-scrollbar -mx-1 mt-1.5 flex gap-2 overflow-x-auto px-1"
-              >
-                {[
-                  ...vehicleTypes.map((type) => ({
-                    id: type.id as VehicleTypeId | "other",
-                    name: type.name,
-                  })),
-                  { id: "other" as const, name: "Other work & products" },
-                ].map((option) => {
-                  const active = scope === option.id;
-                  return (
-                    <button
-                      key={option.id}
-                      type="button"
-                      onClick={() => chooseScope(option.id)}
-                      aria-pressed={active}
-                      className={`flex min-h-9 items-center whitespace-nowrap rounded-slab border-2 px-3 text-xs font-bold uppercase tracking-wide transition-colors duration-150 ease-plain ${
-                        active
-                          ? "border-slab-900 bg-slab-900 text-slab-50"
-                          : "border-slab-200 bg-white text-slab-600 hover:border-slab-500"
-                      }`}
-                    >
-                      {option.name}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/*
-              STEP TWO: WHICH ITEM, within that list.
-
-              Every option carries the CURRENT figure, because the commonest
-              request is "put this up a bit" and without the number in front
-              of them the person drafting it is working from memory against
-              a board in another building.
-
-              The vehicle name is dropped from the wash options — the chip
-              above already says it, and repeating it eleven times is noise.
-              The full "Body Wash - Saloon" is still what gets STORED and
-              sent, where there are no chips to read. See `shortLabel`.
-            */}
-            <div className="sm:col-span-2">
-              {scope === null ? (
-                <p className="rounded-slab border-2 border-dashed border-slab-300 px-4 py-6 text-center text-sm text-slab-600">
-                  Pick a price list above to see what is in it.
-                </p>
-              ) : (
-                <>
-                  <label htmlFor="cr-subject" className={formLabel}>
-                    Which item or service
-                  </label>
-                  <select
-                    id="cr-subject"
-                    value={subjectId}
-                    onChange={(event) => setSubjectId(event.target.value)}
-                    className={`mt-1.5 ${formControl}`}
-                  >
-                    <option value="">Choose...</option>
-                    {scope === "other"
-                      ? otherGroups.map((group) => (
-                          <optgroup key={group.label} label={group.label}>
-                            {group.subjects.map((subject) => (
-                              <option key={subject.id} value={subject.id}>
-                                {subjectOptionLabel(subject)}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ))
-                      : washOptions.map((subject) => (
-                          <option key={subject.id} value={subject.id}>
-                            {subjectOptionLabel(subject, true)}
-                          </option>
-                        ))}
-                  </select>
-                </>
-              )}
-            </div>
-
-            <div>
-              <label htmlFor="cr-price" className={formLabel}>
-                Proposed price (KES)
-              </label>
-              <input
-                id="cr-price"
-                type="number"
-                inputMode="numeric"
-                min={1}
-                step={1}
-                value={price}
-                onChange={(event) => setPrice(event.target.value)}
-                placeholder="600"
-                className={`mt-1.5 ${formControl}`}
-              />
-            </div>
-          </>
-        ) : null}
-
         {kind === "new_item" ? (
           <>
             <div>
@@ -2295,24 +2129,6 @@ function ChangeRequestCard({ request }: { request: ChangeRequest }) {
       </div>
 
       <dl className="grid gap-x-8 gap-y-3 px-4 py-3 text-sm sm:grid-cols-2">
-        {request.kind === "price" ? (
-          <>
-            <Detail label="Item" value={request.subjectLabel} wide />
-            <Detail
-              label="Current price"
-              value={
-                request.currentPriceKes === null
-                  ? "Not listed"
-                  : formatKes(request.currentPriceKes)
-              }
-            />
-            <Detail
-              label="Proposed price"
-              value={formatKes(request.proposedPriceKes)}
-            />
-          </>
-        ) : null}
-
         {request.kind === "new_item" ? (
           <>
             <Detail label="Item" value={request.name} />

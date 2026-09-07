@@ -2,12 +2,9 @@ import type { Metadata } from "next";
 import { PageHeader } from "@/components/PageHeader";
 import { ButtonLink } from "@/components/Button";
 import { business, telHref, whatsappHref } from "@/data/business";
-import {
-  flatPriceGroups,
-  priceFor,
-  vehicleTypes,
-  washPriceRows,
-} from "@/data/services";
+import { flatPriceGroups, vehicleTypes, washPriceRows } from "@/data/services";
+import { flatPrice, washPrice } from "@/lib/prices";
+import { getPriceBook } from "@/lib/prices-db";
 import { formatKes } from "@/lib/format";
 import type { PriceCell } from "@/types";
 
@@ -64,7 +61,20 @@ function Price({ value }: { value: PriceCell }) {
 
 const cell = "px-3 py-2.5 text-sm";
 
-export default function PricesPage() {
+/**
+ * RENDERED PER REQUEST, not prerendered.
+ *
+ * This page was static: the prices were compiled constants, so the whole
+ * board could be built once at deploy time. They are rows now, editable
+ * from the staff view, and a cached copy of this page is a price list
+ * that disagrees with what the booking form will actually charge. Live
+ * editing and static generation cannot both be true, and the brief asked
+ * for the first.
+ */
+export const dynamic = "force-dynamic";
+
+export default async function PricesPage() {
+  const priceBook = await getPriceBook();
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
       <PageHeader
@@ -120,7 +130,7 @@ export default function PricesPage() {
                   </th>
                   {vehicleTypes.map((type) => (
                     <td key={type.id} className={cell} data-label={type.name}>
-                      <Price value={priceFor(row, type.id)} />
+                      <Price value={washPrice(priceBook, row.id, type.id)} />
                     </td>
                   ))}
                 </tr>
@@ -189,7 +199,7 @@ export default function PricesPage() {
                   >
                     <dt className="text-sm font-semibold">{row.name}</dt>
                     <dd className="text-sm">
-                      <Price value={row.priceKes} />
+                      <Price value={flatPrice(priceBook, row.id)} />
                     </dd>
                   </div>
                 ))}

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { bookingConfig } from "@/data/config";
 import { getVehicleType, washPriceRows } from "@/data/services";
+import { getPriceBook } from "@/lib/prices-db";
 import { subsumption, toLines, withoutCovered } from "@/lib/booking";
 import { createBooking, listBookings } from "@/lib/bookings-db";
 import type { NewBookingInput } from "@/lib/bookings-db";
@@ -74,9 +75,12 @@ export async function GET(request: NextRequest) {
  * harmless the moment the record is a real row on a real server that staff
  * work from and print receipts off.
  *
- * So the price board (src/data/services.ts) is read HERE, on the server,
- * with the same functions the picker uses — including the subsumption rule,
- * so a service already covered by another cannot be charged twice.
+ * So the price book is read HERE, on the server, from the database, with
+ * the same functions the picker uses — including the subsumption rule, so a
+ * service already covered by another cannot be charged twice. Since prices
+ * became live-editable this is also what guarantees a booking is written at
+ * the CURRENT figure rather than whatever the customer's page was rendered
+ * with an hour ago.
  */
 interface BookingRequestBody {
   vehicleTypeId?: unknown;
@@ -130,13 +134,39 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  /*
+    THE PRICES COME FROM THE DATABASE, READ HERE, AT SUBMIT TIME.
+
+    This is the line that makes live price editing real rather than
+    cosmetic. The browser sent service ids and a vehicle column; the
+    figures attached to them are fetched now, from `service_prices`, so a
+    price the yard changed thirty seconds ago is the price this booking is
+    written at.
+
+    It also closes the obvious hole in the other direction: a customer who
+    left the booking form open for an hour is charged today's price, not
+    the one their page was rendered with. Neither side's copy is trusted —
+    the total is computed here or not at all.
+  */
+  let priceBook;
+  try {
+    priceBook = await getPriceBook();
+  } catch (error) {
+    console.error("[api/bookings] price book unavailable:", error);
+    // Refuse rather than fall back to an empty book. An empty book prices
+    // every service at null, `toLines` drops them all, and the customer
+    // would be told their selection has no listed price — which is a lie
+    // about the yard rather than a report of a broken database.
+    return json({ error: "read_failed" }, 503);
+  }
+
   // The same two steps the picker runs, in the same order: drop anything
   // already covered by another selected service, then price what is left.
   // `toLines` also drops any row whose board cell has never been read, so
   // an unpriced service can never reach a booking as a zero.
   const { covered } = subsumption(washPriceRows, requestedIds);
   const chargeable = withoutCovered(requestedIds, covered);
-  const lines = toLines(washPriceRows, chargeable, vehicleTypeId);
+  const lines = toLines(washPriceRows, priceBook, chargeable, vehicleTypeId);
 
   if (lines.length === 0) {
     return json(

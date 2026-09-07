@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import { hoursSummary } from "@/data/business";
-import { cheapestConfirmedPriceKes } from "@/data/services";
+import { cheapestConfirmedPriceKes } from "@/lib/prices";
+import { getPriceBook } from "@/lib/prices-db";
 import { formatKes } from "@/lib/format";
 import { BookingFlow } from "./BookingFlow";
 
@@ -47,8 +48,15 @@ export const metadata: Metadata = {
   },
 };
 
-export default function BookPage() {
-  const from = cheapestConfirmedPriceKes();
+/**
+ * Per request. The picker below is priced from the database, so this page
+ * cannot be built once at deploy time — see the note on /prices.
+ */
+export const dynamic = "force-dynamic";
+
+export default async function BookPage() {
+  const priceBook = await getPriceBook();
+  const from = cheapestConfirmedPriceKes(priceBook);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
@@ -85,7 +93,7 @@ export default function BookPage() {
         }
       />
 
-      <BookingFlow />
+      <BookingFlow priceBook={priceBook} />
     </div>
   );
 }

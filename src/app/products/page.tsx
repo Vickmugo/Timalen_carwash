@@ -10,7 +10,9 @@ import {
   productCategories,
   products,
 } from "@/data/products";
-import type { Product, ProductCategoryId } from "@/types";
+import type { PriceCell, Product, ProductCategoryId } from "@/types";
+import { productPrice } from "@/lib/prices";
+import { getPriceBook } from "@/lib/prices-db";
 import { formatKes } from "@/lib/format";
 
 /**
@@ -48,6 +50,12 @@ function isCategoryId(value: string): value is ProductCategoryId {
  * as the filter above; picking one narrows the grid and brings its
  * description with it.
  */
+/**
+ * Per request. Prices are rows now, not constants — see the note on
+ * /prices.
+ */
+export const dynamic = "force-dynamic";
+
 export default async function ProductsPage({
   searchParams,
 }: {
@@ -55,6 +63,8 @@ export default async function ProductsPage({
 }) {
   const { category } = await searchParams;
   const activeCategory = category && isCategoryId(category) ? category : null;
+
+  const priceBook = await getPriceBook();
 
   const shown = activeCategory ? getProductsByCategory(activeCategory) : products;
   const activeDetail = activeCategory ? getCategory(activeCategory) : null;
@@ -128,7 +138,11 @@ export default async function ProductsPage({
         }`}
       >
         {shown.map((product) => (
-          <ProductCard key={product.id} product={product} />
+          <ProductCard
+            key={product.id}
+            product={product}
+            priceKes={productPrice(priceBook, product.id)}
+          />
         ))}
       </ul>
 
@@ -166,7 +180,13 @@ export default async function ProductsPage({
  * and below the slider controls at z-20, so paging through the photos does
  * not fire a navigation. One link in the tab order, one accessible name.
  */
-function ProductCard({ product }: { product: Product }) {
+function ProductCard({
+  product,
+  priceKes,
+}: {
+  product: Product;
+  priceKes: PriceCell;
+}) {
   return (
     <li className="lift relative flex h-full flex-col rounded-slab border-2 border-slab-200 bg-white p-3 hover:border-slab-900">
       <ProductGallery product={product} />
@@ -189,14 +209,23 @@ function ProductCard({ product }: { product: Product }) {
         </p>
 
         <div className="mt-3 border-t-2 border-slab-100 pt-3">
+          {/*
+            "Priced by quote" and "price not listed" are different claims —
+            one is how the item is sold, the other is a gap on our side. See
+            the fuller note on the product page.
+          */}
           {product.quoteOnly ? (
             <span className="text-sm font-bold uppercase tracking-wide text-hivis-dark">
               Priced by quote
             </span>
+          ) : priceKes === null ? (
+            <span className="text-sm font-semibold text-slab-500">
+              Price not listed — ask at the yard
+            </span>
           ) : (
             <span className="flex items-baseline gap-1.5">
               <span className="text-lg font-extrabold">
-                {formatKes(product.priceKes)}
+                {formatKes(priceKes)}
               </span>
               <span className="text-xs text-slab-500">{product.unitLabel}</span>
             </span>

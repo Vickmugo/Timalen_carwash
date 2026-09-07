@@ -18,13 +18,21 @@
  *   PRICING. `selectionTotalKes` and `subsumption` are what the picker in
  *   /book runs on. They live here rather than in the component so the rule
  *   that an unread cell can never be charged is testable on its own.
+ *
+ *   Both now take a `PriceBook` — the figures come from the database, not
+ *   from the row. It is threaded through as an argument rather than
+ *   fetched in here on purpose: this module has to run unchanged in the
+ *   browser (the picker) and on the server (the route handler that prices
+ *   the booking for real), and only one of those can reach a database.
+ *   Passing the book in is what keeps the two arithmetically identical.
  * =====================================================================
  */
 
-import { priceFor } from "@/data/services";
+import { washPrice } from "@/lib/prices";
 import type {
   Booking,
   BookingLine,
+  PriceBook,
   VehicleTypeId,
   WashPriceRow,
 } from "@/types";
@@ -98,10 +106,11 @@ export function bookingVehicleTypeName(booking: Booking): string | null {
  */
 export function selectionTotalKes(
   rows: WashPriceRow[],
+  book: PriceBook,
   selectedIds: ReadonlySet<string>,
   vehicleTypeId: VehicleTypeId,
 ): number {
-  return toLines(rows, selectedIds, vehicleTypeId).reduce(
+  return toLines(rows, book, selectedIds, vehicleTypeId).reduce(
     (total, line) => total + line.priceKes,
     0,
   );
@@ -116,13 +125,14 @@ export function selectionTotalKes(
  */
 export function toLines(
   rows: WashPriceRow[],
+  book: PriceBook,
   selectedIds: ReadonlySet<string>,
   vehicleTypeId: VehicleTypeId,
 ): BookingLine[] {
   const lines: BookingLine[] = [];
   for (const row of rows) {
     if (!selectedIds.has(row.id)) continue;
-    const price = priceFor(row, vehicleTypeId);
+    const price = washPrice(book, row.id, vehicleTypeId);
     // The guard that makes "an unread cell is never charged" structural.
     if (price === null) continue;
     lines.push({ serviceId: row.id, name: row.name, priceKes: price });

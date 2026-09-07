@@ -78,7 +78,24 @@ function writeLines(next: CartLine[]): void {
 
 /* ---------------------------- mutations ---------------------------- */
 
-export function addItem(product: Product, quantity: number): void {
+/**
+ * `priceKes` IS PASSED IN, not read off the product.
+ *
+ * Products carry no price any more — the figure lives in `product_prices`
+ * and reaches the browser as part of a `PriceBook` the server rendered the
+ * page with. So the caller, which has that book, supplies the number.
+ *
+ * The line still COPIES it, exactly as before: a cart line records what
+ * the item cost when it was put in the basket, and a price edited by the
+ * yard an hour later does not silently re-price a basket somebody is
+ * halfway through. That was already the behaviour and it matters more now
+ * that prices can move during opening hours.
+ */
+export function addItem(
+  product: Product,
+  priceKes: number,
+  quantity: number,
+): void {
   const current = readLines();
   const existing = current.find((line) => line.productId === product.id);
 
@@ -96,7 +113,7 @@ export function addItem(product: Product, quantity: number): void {
             slug: product.slug,
             name: product.name,
             unitLabel: product.unitLabel,
-            priceKes: product.priceKes,
+            priceKes,
             quantity,
             status: product.status,
             quoteOnly: product.quoteOnly,

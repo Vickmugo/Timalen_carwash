@@ -58,12 +58,23 @@ export interface VehicleType {
  */
 export type PriceCell = number | null;
 
-/** One row of the per-vehicle-type grid: a service, priced by vehicle size. */
+/**
+ * One row of the per-vehicle-type grid.
+ *
+ * NO PRICES ON IT ANY MORE. As of the price-tables migration the figures
+ * live in `service_prices` in the database, keyed by this `id` crossed
+ * with a vehicle type, and are read through a `PriceBook` (below). What
+ * stays here is the part that is not the yard's to edit from a web form:
+ * the id, the board's own wording, the row's position in the list, and
+ * what it is known to subsume.
+ *
+ * The split is deliberate — a price is a business fact the yard changes
+ * weekly; a service name is a transcription of what is painted on a wall.
+ */
 export interface WashPriceRow {
   id: string;
   /** Exactly as painted on the board. */
   name: string;
-  prices: Record<VehicleTypeId, PriceCell>;
   /**
    * Which other rows this one already covers, so the picker does not charge
    * for the same work twice.
@@ -92,7 +103,7 @@ export interface FlatPriceRow {
   id: string;
   /** Exactly as painted on the board. */
   name: string;
-  priceKes: PriceCell;
+  /* Priced in `flat_prices`, keyed by `id`. See WashPriceRow above. */
 }
 
 /** A headed block of flat-priced items, in board order. */
@@ -101,6 +112,39 @@ export interface FlatPriceGroup {
   /** Exactly as painted on the board. */
   name: string;
   rows: FlatPriceRow[];
+}
+
+/* ------------------------------------------------------------------ */
+/* The price book                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * EVERY PRICE IN THE BUSINESS, READ ONCE.
+ *
+ * The three price tables collapsed into one plain object. It is built on
+ * the server by `getPriceBook()` in src/lib/prices-db.ts and then handed
+ * around — passed as a prop into the client components that need to
+ * render or total prices, because those cannot reach the database
+ * themselves and must never hold a key that could.
+ *
+ * PLAIN RECORDS RATHER THAN MAPS, and that is not a style choice: this
+ * object crosses the server/client boundary as a prop, so it has to
+ * survive JSON serialisation. A `Map` does not.
+ *
+ * `PriceCell` throughout, so `null` keeps meaning exactly what it means
+ * everywhere else in this app — nobody has transcribed this cell. A
+ * missing KEY means something different and worse: the id is not in the
+ * database at all, which is a seeding gap rather than an unread cell. The
+ * lookups in src/lib/prices.ts fold both to null, so no caller can print a
+ * price for either.
+ */
+export interface PriceBook {
+  /** Keyed `"<serviceId>:<vehicleTypeId>"`. */
+  wash: Record<string, PriceCell>;
+  /** Keyed by `FlatPriceRow.id`. */
+  flat: Record<string, PriceCell>;
+  /** Keyed by `Product.id`. */
+  product: Record<string, PriceCell>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -141,7 +185,7 @@ export interface Product {
   description: string;
   /** e.g. "per piece", "per square metre". Shown next to the price. */
   unitLabel: string;
-  priceKes: number;
+  /* Priced in `product_prices`, keyed by `id`. See WashPriceRow above. */
   status: FulfilmentStatus;
   /**
    * Bypasses the cart entirely and always routes to the quote form —
@@ -361,7 +405,23 @@ export interface QuoteRequest {
  * and again on every single card — see the note in
  * src/lib/change-requests.ts about why it is repeated rather than said once.
  */
-export type ChangeRequestKind = "price" | "new_item" | "stock";
+/**
+ * TWO KINDS. "price" IS GONE, AND ON PURPose — it was removed rather than
+ * hidden.
+ *
+ * Asking a developer to change a price made sense while prices were
+ * compiled into the build. They are rows in `service_prices`,
+ * `flat_prices` and `product_prices` now, and the staff view edits them
+ * directly and live. A request to change something you can simply change
+ * is a queue that exists for no reason, and the worst version of it is one
+ * where a staff member drafts a request and waits for a price they could
+ * have set themselves.
+ *
+ * What is left is the two things this app genuinely cannot do to itself: a
+ * product that does not exist in src/data/products.ts, and a stock state
+ * the catalogue has no field for.
+ */
+export type ChangeRequestKind = "new_item" | "stock";
 
 /**
  * TWO STATES, AND "SENT" IS SELF-REPORTED.
@@ -392,35 +452,6 @@ interface ChangeRequestBase {
   note: string;
   /** Status changes, most recent first. Optional; see `QuoteRequest`. */
   history?: StatusChange[];
-}
-
-/**
- * "This should cost something different."
- *
- * The subject is stored as an OPAQUE ID PLUS THE LABEL AND PRICE AS THEY
- * READ AT THE TIME. Storing the label is not redundancy: the request is a
- * message to a human about a moment, and if the board is repainted between
- * drafting and sending, this record must still say what was actually being
- * looked at rather than silently re-pointing at whatever holds that id now.
- */
-export interface PriceChangeRequest extends ChangeRequestBase {
-  kind: "price";
-  /**
-   * From `washSubjectsFor()` or `otherSubjectGroups()` in
-   * src/lib/change-requests.ts. Stable across the form's shape: a
-   * "wash:body-wash:saloon" written before the picker was split into two
-   * steps still resolves through `findSubject`.
-   */
-  subjectId: string;
-  /** e.g. "Body Wash - Saloon". Copied at draft time. */
-  subjectLabel: string;
-  /**
-   * What it cost when the request was drafted. `null` where the board cell
-   * has never been read — those are the rows most likely to be the point of
-   * the request, so they are offered rather than filtered out.
-   */
-  currentPriceKes: number | null;
-  proposedPriceKes: number;
 }
 
 /**
@@ -458,7 +489,4 @@ export interface StockChangeRequest extends ChangeRequestBase {
   intent: "out_of_stock" | "back_in_stock";
 }
 
-export type ChangeRequest =
-  | PriceChangeRequest
-  | NewItemRequest
-  | StockChangeRequest;
+export type ChangeRequest = NewItemRequest | StockChangeRequest;
