@@ -32,6 +32,41 @@ const nextConfig: NextConfig = {
    */
   allowedDevOrigins: ["192.168.*.*", "10.*.*.*", "172.16.*.*"],
 
+  /**
+   * ONE REDIRECT, FOR ONE RENAMED PRODUCT.
+   *
+   * "Column & Pillar Caps" became "Wall Caps" in the September batch —
+   * the name the business itself prints on its banner — which moved the
+   * page from /products/column-caps to /products/wall-caps. Without this
+   * the old URL is a bare 404.
+   *
+   * WHY IT IS WORTH A CONFIG ENTRY for a site this small: that URL is in
+   * the sitemap this app has been serving, so a crawler has had it, and it
+   * is the kind of link that gets pasted into a WhatsApp thread and sat on
+   * for months. A 404 tells that visitor the yard stopped selling the
+   * thing; a 308 puts them on the product.
+   *
+   * PERMANENT (308) rather than temporary, because the rename is not
+   * coming back. That does mean browsers and search engines cache it hard,
+   * so it is the right call only for a move that is genuinely final —
+   * which this one is, the old name having been wrong rather than merely
+   * out of favour.
+   *
+   * NOT NEEDED FOR THE FILTER LINK /products?category=column-caps: an
+   * unrecognised category falls through `isCategoryId` in
+   * src/app/products/page.tsx and renders the full grid, which is a
+   * reasonable landing rather than an error.
+   */
+  redirects() {
+    return Promise.resolve([
+      {
+        source: "/products/column-caps",
+        destination: "/products/wall-caps",
+        permanent: true,
+      },
+    ]);
+  },
+
   turbopack: {
     /**
      * This folder sits inside a git repository rooted at the home directory,

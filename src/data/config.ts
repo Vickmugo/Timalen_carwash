@@ -41,6 +41,22 @@ export const bookingConfig = {
    */
   placeholderWashDurationMinutes: 30,
 
+  /**
+   * HOW LONG A LORRY OR BUS BOOKING HOLDS THE BAY. ALSO A PLACEHOLDER.
+   *
+   * Nobody has said how long either takes. 90 minutes was chosen by the
+   * owner of this build in September 2026 as a stand-in, on the reasoning
+   * that a lorry is plainly not a 30-minute saloon — not read off anything
+   * the yard said. It is three grid steps, so a lorry booking blocks the
+   * three standard slots underneath it; `generateSlots` checks real
+   * intervals, so that blocking is exact rather than approximate.
+   *
+   * TODO / CONFIRM WITH CLIENT: the real figure, and whether a Canter and
+   * an F.S.R. take the same time. Every lorry and bus size uses this one
+   * number until then.
+   */
+  placeholderLargeVehicleDurationMinutes: 90,
+
   /** How many days ahead a customer may book, starting today. */
   bookingWindowDays: 14,
 

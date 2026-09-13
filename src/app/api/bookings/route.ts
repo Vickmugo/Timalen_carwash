@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { bookingConfig } from "@/data/config";
-import { getVehicleType, washPriceRows } from "@/data/services";
-import { getPriceBook } from "@/lib/prices-db";
-import { subsumption, toLines, withoutCovered } from "@/lib/booking";
+import { getFlatVehicle, getVehicleType, washPriceRows } from "@/data/services";
+import { readPriceBook } from "@/lib/prices-db";
+import { flatVehicleLines, subsumption, toLines, withoutCovered } from "@/lib/booking";
 import { createBooking, listBookings } from "@/lib/bookings-db";
 import type { NewBookingInput } from "@/lib/bookings-db";
 import { getBookedIntervals } from "@/lib/bookings-db";
-import { generateSlots, getBookableDates } from "@/lib/slots";
+import { generateSlots, getBookableDates, holdMinutesFor } from "@/lib/slots";
 import { isStaffRequest } from "@/lib/staff-guard";
 import { isValidKenyanPhone } from "@/lib/validate";
-import type { PaymentStatus, VehicleTypeId } from "@/types";
+import type { BookingLine, PaymentStatus } from "@/types";
 
 /**
  * =====================================================================
@@ -112,10 +111,10 @@ export async function POST(request: NextRequest) {
     return json({ error: "bad_request", detail: "Body is not JSON." }, 400);
   }
 
-  /* ---- the vehicle column ---- */
-  const vehicleTypeId = asTrimmedString(body.vehicleTypeId) as VehicleTypeId;
-  const vehicleType = getVehicleType(vehicleTypeId);
-  if (!vehicleType) {
+  /* ---- the vehicle: a grid column, or a flat-priced vehicle ---- */
+  const vehicleTypeId = asTrimmedString(body.vehicleTypeId);
+  const pricedAs = getVehicleType(vehicleTypeId) ?? getFlatVehicle(vehicleTypeId);
+  if (!pricedAs) {
     return json(
       { error: "bad_request", detail: "Unknown vehicle type." },
       400,
@@ -148,25 +147,36 @@ export async function POST(request: NextRequest) {
     the one their page was rendered with. Neither side's copy is trusted —
     the total is computed here or not at all.
   */
-  let priceBook;
-  try {
-    priceBook = await getPriceBook();
-  } catch (error) {
-    console.error("[api/bookings] price book unavailable:", error);
-    // Refuse rather than fall back to an empty book. An empty book prices
-    // every service at null, `toLines` drops them all, and the customer
-    // would be told their selection has no listed price — which is a lie
-    // about the yard rather than a report of a broken database.
+  const { book: priceBook, unavailable } = await readPriceBook();
+  if (unavailable.includes("groupId" in pricedAs ? "flat" : "wash")) {
+    // Refuse rather than price from the section this booking needs when it
+    // could not be read. The pages render an unreadable section as "not
+    // listed", which is fine for a page; here it would drop every line and
+    // tell the customer their selection has no listed price — a lie about
+    // the yard rather than a report of a broken database. The sections a
+    // booking does not use play no part, so their failures do not block it.
     return json({ error: "read_failed" }, 503);
   }
 
-  // The same two steps the picker runs, in the same order: drop anything
-  // already covered by another selected service, then price what is left.
-  // `toLines` also drops any row whose board cell has never been read, so
-  // an unpriced service can never reach a booking as a zero.
-  const { covered } = subsumption(washPriceRows, requestedIds);
-  const chargeable = withoutCovered(requestedIds, covered);
-  const lines = toLines(washPriceRows, priceBook, chargeable, vehicleTypeId);
+  let lines: BookingLine[];
+  if ("groupId" in pricedAs) {
+    // ONE SIZE, ONE LINE. A flat vehicle is priced as the size being
+    // brought, so exactly one id is accepted — two would be two vehicles
+    // in one slot. `flatVehicleLines` drops a size that is not this
+    // vehicle's, or whose figure is unread.
+    lines =
+      requestedIds.size === 1
+        ? flatVehicleLines(priceBook, pricedAs, [...requestedIds][0])
+        : [];
+  } else {
+    // The same two steps the picker runs, in the same order: drop anything
+    // already covered by another selected service, then price what is left.
+    // `toLines` also drops any row whose board cell has never been read, so
+    // an unpriced service can never reach a booking as a zero.
+    const { covered } = subsumption(washPriceRows, requestedIds);
+    const chargeable = withoutCovered(requestedIds, covered);
+    lines = toLines(washPriceRows, priceBook, chargeable, pricedAs.id);
+  }
 
   if (lines.length === 0) {
     return json(
@@ -179,7 +189,8 @@ export async function POST(request: NextRequest) {
   }
 
   const priceKes = lines.reduce((total, line) => total + line.priceKes, 0);
-  const durationMinutes = bookingConfig.placeholderWashDurationMinutes;
+  // A lorry or bus holds the bay longer; see `holdMinutesFor`.
+  const durationMinutes = holdMinutesFor(pricedAs.id);
 
   /* ---- the customer's details ---- */
   const customerName = asTrimmedString(body.customerName);
@@ -246,11 +257,11 @@ export async function POST(request: NextRequest) {
 
   /* ---- write it ---- */
   const input: NewBookingInput = {
-    vehicleTypeId,
+    vehicleTypeId: pricedAs.id,
     // The column NAME is copied onto the record, not just its id. If the
     // board is ever repainted with different wording, this booking keeps
     // saying what the customer was actually quoted against.
-    vehicleTypeName: vehicleType.name,
+    vehicleTypeName: pricedAs.name,
     lines,
     priceKes,
     durationMinutes,

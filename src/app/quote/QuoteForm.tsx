@@ -7,6 +7,7 @@ import { TextAreaField, TextField } from "@/components/Field";
 import { getProduct } from "@/data/products";
 import type { QuoteRequest } from "@/types";
 import { clearCart, useCart } from "@/lib/cart";
+import { cartLineKey, cartLineName } from "@/lib/cart-line";
 import { formatKes, makeRef } from "@/lib/format";
 import { addQuote } from "@/lib/store";
 import { compactErrors, phoneError, requiredText } from "@/lib/validate";
@@ -15,6 +16,7 @@ import { compactErrors, phoneError, requiredText } from "@/lib/validate";
  * Three ways in:
  *   /quote                                  blank form
  *   /quote?product=slug&quantity=n          from a product page
+ *   /quote?product=slug&variant=id&...      the same, one height of it
  *   /quote?from=cart                        cart tripped the quote threshold
  */
 const BLANK = {
@@ -36,6 +38,7 @@ export function QuoteForm() {
   const fromCart = searchParams.get("from") === "cart";
   const productSlug = searchParams.get("product");
   const presetQuantity = searchParams.get("quantity");
+  const variantId = searchParams.get("variant");
 
   /**
    * Prefill is DERIVED, not copied into state by an effect. Whatever the
@@ -48,7 +51,10 @@ export function QuoteForm() {
       return {
         ...BLANK,
         item: lines
-          .map((line) => `${line.name} x ${line.quantity} (${line.unitLabel})`)
+          .map(
+            (line) =>
+              `${cartLineName(line)} x ${line.quantity} (${line.unitLabel})`,
+          )
           .join("\n"),
         quantity: `${lines.reduce(
           (total, line) => total + line.quantity,
@@ -60,16 +66,19 @@ export function QuoteForm() {
     if (productSlug) {
       const product = getProduct(productSlug);
       if (product) {
+        // An unknown variant id falls back to the bare product name rather
+        // than printing an id nobody would recognise.
+        const variant = product.variants?.find((entry) => entry.id === variantId);
         return {
           ...BLANK,
-          item: product.name,
+          item: cartLineName({ name: product.name, variantLabel: variant?.label }),
           quantity: presetQuantity ?? "",
         };
       }
     }
 
     return BLANK;
-  }, [fromCart, lines, productSlug, presetQuantity]);
+  }, [fromCart, lines, productSlug, presetQuantity, variantId]);
 
   const [edits, setEdits] = useState<Partial<FormValues>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -131,9 +140,9 @@ export function QuoteForm() {
           <h2 className="text-base">Sent over from your cart</h2>
           <ul className="mt-2 flex flex-col gap-1 text-sm text-slab-800">
             {lines.map((line) => (
-              <li key={line.productId} className="flex justify-between gap-3">
+              <li key={cartLineKey(line)} className="flex justify-between gap-3">
                 <span>
-                  {line.name} x {line.quantity}
+                  {cartLineName(line)} x {line.quantity}
                 </span>
                 {line.quoteOnly ? (
                   <span className="shrink-0 text-slab-600">Quote only</span>

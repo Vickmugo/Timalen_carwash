@@ -21,7 +21,7 @@
  *
  * WHY THE SUBJECT LIST IS DERIVED, NOT TYPED. A free-text "which item?"
  * field would let somebody write "the small slabs" and leave the developer
- * guessing which of five products and three price columns that is. Reading
+ * guessing which of eight products and three price columns that is. Reading
  * the catalogue means the request arrives already unambiguous, and it
  * stays correct when the catalogue changes without anybody remembering
  * this file exists.
@@ -185,7 +185,7 @@ export function categoryLabel(
  * on a phone by somebody who is not looking at this screen, so:
  *
  *   - every value is labelled, because "550 -> 600" a week later is a
- *     riddle about which of five products it was
+ *     riddle about which of eight products it was
  *   - no markdown, no box drawing, no emoji. WhatsApp renders none of it
  *     and a plain line break survives every client there is
  *   - the current value travels WITH the proposed one. A request saying

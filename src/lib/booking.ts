@@ -28,10 +28,12 @@
  * =====================================================================
  */
 
-import { washPrice } from "@/lib/prices";
+import { flatVehicleRows } from "@/data/services";
+import { flatPrice, washPrice } from "@/lib/prices";
 import type {
   Booking,
   BookingLine,
+  FlatVehicle,
   PriceBook,
   VehicleTypeId,
   WashPriceRow,
@@ -138,6 +140,26 @@ export function toLines(
     lines.push({ serviceId: row.id, name: row.name, priceKes: price });
   }
   return lines;
+}
+
+/**
+ * THE BOOKING LINE FOR A FLAT-PRICED VEHICLE — one size, one figure.
+ *
+ * The grid's `toLines` for a motorbike. There are no services to sum: the
+ * board prices the vehicle, so the booking is exactly one line, named as
+ * the board names the size. Empty when `rowId` is not one of this
+ * vehicle's sizes or its figure is unread — the same guard as `toLines`,
+ * so an unpriced size can never reach a booking as a zero.
+ */
+export function flatVehicleLines(
+  book: PriceBook,
+  vehicle: FlatVehicle,
+  rowId: string,
+): BookingLine[] {
+  const row = flatVehicleRows(vehicle).find((entry) => entry.id === rowId);
+  if (!row) return [];
+  const price = flatPrice(book, row.id);
+  return price === null ? [] : [{ serviceId: row.id, name: row.name, priceKes: price }];
 }
 
 /** What one selection implies about the other rows in the list. */

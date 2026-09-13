@@ -52,9 +52,9 @@ import { UNATTRIBUTED } from "@/data/admin-users";
 import type {
   Booking,
   BookingLine,
+  BookingVehicleId,
   PaymentStatus,
   StatusChange,
-  VehicleTypeId,
 } from "@/types";
 
 /* ------------------------------------------------------------------ */
@@ -201,7 +201,7 @@ export function toBooking(row: BookingRow): Booking {
   return {
     ref: row.ref,
     ...(row.vehicle_type_id
-      ? { vehicleTypeId: row.vehicle_type_id as VehicleTypeId }
+      ? { vehicleTypeId: row.vehicle_type_id as BookingVehicleId }
       : {}),
     ...(row.vehicle_type_name
       ? { vehicleTypeName: row.vehicle_type_name }
@@ -235,7 +235,7 @@ export function toBooking(row: BookingRow): Booking {
  * and the timestamp are the server's to decide, not the browser's.
  */
 export interface NewBookingInput {
-  vehicleTypeId: VehicleTypeId;
+  vehicleTypeId: BookingVehicleId;
   vehicleTypeName: string;
   lines: BookingLine[];
   priceKes: number;

@@ -83,5 +83,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "yearly",
       priority: 0.5,
     },
+    {
+      // Carpets and sofa sets. A request, like /quote, and ranked with it.
+      url: `${base}/book/carpets`,
+      lastModified,
+      changeFrequency: "yearly",
+      priority: 0.5,
+    },
   ];
 }

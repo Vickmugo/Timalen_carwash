@@ -5,6 +5,7 @@ import { FulfilmentBadge } from "@/components/Badge";
 import { ButtonLink } from "@/components/Button";
 import { PageHeader } from "@/components/PageHeader";
 import { clearCart, removeItem, setQuantity, useCart } from "@/lib/cart";
+import { cartLineKey, cartLineName } from "@/lib/cart-line";
 import { formatKes } from "@/lib/format";
 
 export default function CartPage() {
@@ -33,7 +34,7 @@ export default function CartPage() {
           <ul className="mt-6 flex flex-col gap-3">
             {lines.map((line) => (
               <li
-                key={line.productId}
+                key={cartLineKey(line)}
                 className="rounded-slab border-2 border-slab-200 bg-white p-4"
               >
                 <div className="flex items-start justify-between gap-3">
@@ -42,7 +43,7 @@ export default function CartPage() {
                       href={`/products/${line.slug}`}
                       className="text-base font-bold uppercase tracking-tight hover:underline"
                     >
-                      {line.name}
+                      {cartLineName(line)}
                     </Link>
                     <p className="mt-1 text-sm text-slab-500">
                       {formatKes(line.priceKes)} {line.unitLabel}
@@ -54,13 +55,13 @@ export default function CartPage() {
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <label
-                      htmlFor={`qty-${line.productId}`}
+                      htmlFor={`qty-${cartLineKey(line)}`}
                       className="text-sm font-bold uppercase tracking-wide text-slab-600"
                     >
                       Qty
                     </label>
                     <input
-                      id={`qty-${line.productId}`}
+                      id={`qty-${cartLineKey(line)}`}
                       type="number"
                       inputMode="numeric"
                       min={1}
@@ -68,7 +69,7 @@ export default function CartPage() {
                       onChange={(event) => {
                         const next = Number(event.target.value);
                         setQuantity(
-                          line.productId,
+                          cartLineKey(line),
                           Number.isFinite(next) ? next : 1,
                         );
                       }}
@@ -76,7 +77,7 @@ export default function CartPage() {
                     />
                     <button
                       type="button"
-                      onClick={() => removeItem(line.productId)}
+                      onClick={() => removeItem(cartLineKey(line))}
                       className="ml-1 text-sm font-bold uppercase tracking-wide text-slab-500 underline underline-offset-4 transition-colors duration-150 ease-out hover:text-alert"
                     >
                       Remove

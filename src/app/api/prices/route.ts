@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { getPriceBook, listRecentPriceChanges, setPrice } from "@/lib/prices-db";
+import { listRecentPriceChanges, readPriceBook, setPrice } from "@/lib/prices-db";
 import type { PriceKind } from "@/lib/prices-db";
 import { isStaffRequest } from "@/lib/staff-guard";
 import { getVehicleType, getWashPriceRow } from "@/data/services";
@@ -43,16 +43,22 @@ function json(body: unknown, status: number): NextResponse {
 export async function GET(request: NextRequest) {
   if (!isStaffRequest(request)) return json({ error: "not_authorised" }, 401);
 
-  try {
-    const [priceBook, changes] = await Promise.all([
-      getPriceBook(),
-      listRecentPriceChanges(20),
-    ]);
-    return json({ priceBook, changes }, 200);
-  } catch (error) {
-    console.error("[api/prices] GET failed:", error);
-    return json({ error: "read_failed" }, 503);
-  }
+  /*
+    PARTIAL, NOT ALL-OR-NOTHING — the same rule the public pages follow.
+    Whatever could be read is returned, and `unavailable` names the price
+    sections that could not be, so the editor can say "these rows are not
+    what the database holds" rather than presenting a failed read as a
+    column of unpriced cells somebody might helpfully re-enter. A log that
+    will not load is `changes: null`, and does not take the prices with it.
+  */
+  const [{ book: priceBook, unavailable }, changes] = await Promise.all([
+    readPriceBook(),
+    listRecentPriceChanges(20).catch((error: unknown) => {
+      console.error("[api/prices] change log unreadable:", error);
+      return null;
+    }),
+  ]);
+  return json({ priceBook, unavailable, changes }, 200);
 }
 
 /* ------------------------------------------------------------------ */
@@ -77,6 +83,7 @@ function knownId(
   serviceId: string,
   vehicleTypeId: string,
   id: string,
+  variantId: string,
 ): boolean {
   if (kind === "wash") {
     return Boolean(getWashPriceRow(serviceId) && getVehicleType(vehicleTypeId));
@@ -86,7 +93,18 @@ function knownId(
       group.rows.some((row) => row.id === id),
     );
   }
-  return products.some((product) => product.id === id);
+  const product = products.find((entry) => entry.id === id);
+  if (!product) return false;
+  /*
+    A PRODUCT SOLD BY HEIGHT HAS NO PRICE OF ITS OWN, so a request that
+    names one without a height is refused rather than written to the old
+    one-figure row. That row still exists — the tiers migration depriced it
+    instead of deleting it, to keep its audit history — and a write that
+    reached it would put a price back on a cell nothing renders. The
+    reverse holds too: a height on a single-price product is a typo.
+  */
+  if (!product.variants) return variantId === "";
+  return product.variants.some((variant) => variant.id === variantId);
 }
 
 const KINDS: PriceKind[] = ["wash", "flat", "product"];
@@ -99,6 +117,7 @@ export async function PATCH(request: NextRequest) {
     serviceId?: unknown;
     vehicleTypeId?: unknown;
     id?: unknown;
+    variantId?: unknown;
     priceKes?: unknown;
     by?: unknown;
   };
@@ -117,8 +136,9 @@ export async function PATCH(request: NextRequest) {
   const vehicleTypeId =
     typeof body.vehicleTypeId === "string" ? body.vehicleTypeId : "";
   const id = typeof body.id === "string" ? body.id : "";
+  const variantId = typeof body.variantId === "string" ? body.variantId : "";
 
-  if (!knownId(kind, serviceId, vehicleTypeId, id)) {
+  if (!knownId(kind, serviceId, vehicleTypeId, id, variantId)) {
     return json(
       { error: "bad_request", detail: "That is not something we price." },
       400,
@@ -162,7 +182,9 @@ export async function PATCH(request: NextRequest) {
       kind,
       kind === "wash"
         ? { serviceId, vehicleTypeId: vehicleTypeId as VehicleTypeId }
-        : { id },
+        : kind === "product"
+          ? { id, variantId }
+          : { id },
       priceKes,
       by,
     );

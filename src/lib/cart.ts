@@ -13,7 +13,8 @@
  */
 
 import { useMemo, useSyncExternalStore } from "react";
-import type { CartLine, Product } from "@/types";
+import type { CartLine, Product, ProductVariant } from "@/types";
+import { cartLineKey } from "./cart-line";
 import { cartSubtotal, evaluateCart, type QuoteEvaluation } from "./quote";
 
 const STORAGE_KEY = "demo.cart";
@@ -90,19 +91,26 @@ function writeLines(next: CartLine[]): void {
  * yard an hour later does not silently re-price a basket somebody is
  * halfway through. That was already the behaviour and it matters more now
  * that prices can move during opening hours.
+ *
+ * `variant` is REQUIRED for a product sold by height and must be omitted
+ * otherwise. Adding the same height again tops up that line; a different
+ * height is a new line with its own price and its own quantity, which is
+ * what makes the over-50 bulk rule in src/lib/quote.ts apply per height.
  */
 export function addItem(
   product: Product,
   priceKes: number,
   quantity: number,
+  variant?: ProductVariant,
 ): void {
   const current = readLines();
-  const existing = current.find((line) => line.productId === product.id);
+  const key = cartLineKey({ productId: product.id, variantId: variant?.id });
+  const existing = current.find((line) => cartLineKey(line) === key);
 
   writeLines(
     existing
       ? current.map((line) =>
-          line.productId === product.id
+          cartLineKey(line) === key
             ? { ...line, quantity: line.quantity + quantity }
             : line,
         )
@@ -110,6 +118,9 @@ export function addItem(
           ...current,
           {
             productId: product.id,
+            ...(variant
+              ? { variantId: variant.id, variantLabel: variant.label }
+              : {}),
             slug: product.slug,
             name: product.name,
             unitLabel: product.unitLabel,
@@ -122,19 +133,20 @@ export function addItem(
   );
 }
 
-export function setQuantity(productId: string, quantity: number): void {
+/** `lineKey` is `cartLineKey(line)` — a product id alone is ambiguous. */
+export function setQuantity(lineKey: string, quantity: number): void {
   const current = readLines();
   writeLines(
     quantity <= 0
-      ? current.filter((line) => line.productId !== productId)
+      ? current.filter((line) => cartLineKey(line) !== lineKey)
       : current.map((line) =>
-          line.productId === productId ? { ...line, quantity } : line,
+          cartLineKey(line) === lineKey ? { ...line, quantity } : line,
         ),
   );
 }
 
-export function removeItem(productId: string): void {
-  writeLines(readLines().filter((line) => line.productId !== productId));
+export function removeItem(lineKey: string): void {
+  writeLines(readLines().filter((line) => cartLineKey(line) !== lineKey));
 }
 
 export function clearCart(): void {

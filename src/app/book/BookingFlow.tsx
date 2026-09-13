@@ -23,10 +23,19 @@
  * number, because inventing one is the thing the whole price-board exercise
  * was done to stop. The gap is visible, and it is honest about being a gap.
  *
- * DURATION IS STILL A PLACEHOLDER and deliberately untouched. Every booking
- * takes one fixed block of bay time from `bookingConfig`, however many
- * services are on it. See the long note there; the screen says so too, at
- * the point where it would otherwise mislead.
+ * FLAT-PRICED VEHICLES SHARE THE PICKER, NOT THE SERVICE LIST. The board
+ * prices motorbikes, lorries and buses as one figure per size under their
+ * own headings — no Body Wash, no Engine Wash — so choosing one shows those
+ * sizes instead of the grid's eleven services, and the booking is a single
+ * line. Same details, same payment step. See `flatVehicles` in
+ * src/data/services.ts. An unread size (full-size Bus) is shown and cannot
+ * be picked, like an unread cell.
+ *
+ * DURATION IS STILL A PLACEHOLDER. A car or motorbike takes one fixed block
+ * of bay time and a lorry or bus a longer one, both from `bookingConfig`,
+ * however many services are on it — see `holdMinutesFor` in
+ * src/lib/slots.ts and the notes in config. The slot grid is fetched for
+ * the vehicle, so a lorry is only offered starts its whole block fits.
  *
  * ONE PICKER, FOUR TIMES. Vehicle, date, time and payment method are the
  * same control repeated, so they are painted the same way — the same
@@ -47,15 +56,27 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/Button";
 import { TextAreaField, TextField } from "@/components/Field";
 import { Stepper } from "@/components/Stepper";
-import { WEEKDAY_SHORT } from "@/data/business";
-import { bookingConfig, paymentConfig } from "@/data/config";
-import { vehicleTypes, washPriceRows } from "@/data/services";
-import { washPrice } from "@/lib/prices";
-import type { PaymentStatus, PriceBook, VehicleTypeId } from "@/types";
+import { WEEKDAY_SHORT, business, telHref } from "@/data/business";
+import { paymentConfig } from "@/data/config";
+import {
+  flatVehicleRows,
+  flatVehicles,
+  getFlatVehicle,
+  vehicleTypes,
+  washPriceRows,
+} from "@/data/services";
+import { flatPrice, washPrice } from "@/lib/prices";
+import type {
+  BookingVehicleId,
+  FlatVehicleId,
+  PaymentStatus,
+  PriceBook,
+} from "@/types";
 import {
   formatDuration,
   formatKes,
@@ -64,20 +85,43 @@ import {
   fromDateKey,
 } from "@/lib/format";
 import {
-  selectionTotalKes,
+  flatVehicleLines,
   subsumption,
   toLines,
   withoutCovered,
 } from "@/lib/booking";
 import { processPayment } from "@/lib/payment";
 import type { Slot } from "@/lib/slots";
-import { getBookableDates, getDayHours } from "@/lib/slots";
+import { getBookableDates, getDayHours, holdMinutesFor } from "@/lib/slots";
 import { compactErrors, phoneError, requiredText } from "@/lib/validate";
 
 const STEPS = ["Wash", "Time", "Details", "Payment"];
 
-/** Every booking holds the bay for this long. Placeholder — see config. */
-const DURATION = bookingConfig.placeholderWashDurationMinutes;
+/**
+ * What the "Vehicle" field asks for, per flat vehicle. The plate is what
+ * the bay matches a booking to on arrival, so it is asked for every time;
+ * only the example changes, so nobody is told to describe "which car" a
+ * motorbike is.
+ */
+const PLATE_PROMPT: Record<FlatVehicleId, { hint: string; placeholder: string }> = {
+  motorbike: {
+    hint: "Make and number plate, so we know which bike is yours.",
+    placeholder: "Bajaj Boxer, KMFA 123X",
+  },
+  lorry: {
+    hint: "Make, model and number plate, so we know which lorry is yours.",
+    placeholder: "Isuzu FSR, KCB 456Y",
+  },
+  bus: {
+    hint: "Make, model and number plate, so we know which bus is yours.",
+    placeholder: "Toyota Hiace, KDB 789Z",
+  },
+};
+
+const CAR_PLATE_PROMPT = {
+  hint: "Make, model and number plate, so we know which car is yours.",
+  placeholder: "Toyota Fielder, KDA 123X",
+};
 
 /**
  * `priceBook` ARRIVES AS A PROP, fetched by the server component in
@@ -112,10 +156,11 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
     See the note at the top of src/app/api/slots/route.ts.
   */
   const [slotData, setSlotData] = useState<{
-    date: string;
+    /** `slotKey()` of the vehicle and date these slots were built for. */
+    key: string;
     slots: Slot[];
     error: string | null;
-  }>({ date: "", slots: [], error: null });
+  }>({ key: "", slots: [], error: null });
 
   /* ------------------------- wash selection ------------------------- */
 
@@ -126,13 +171,34 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
     between 150 and 1200 for the same wet vacuum. One tap is cheaper than
     that mistake.
   */
-  const [vehicleTypeId, setVehicleTypeId] = useState<VehicleTypeId | null>(
-    null,
-  );
+  const [vehicleId, setVehicleId] = useState<BookingVehicleId | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionError, setSelectionError] = useState<string | null>(null);
 
-  const vehicleType = vehicleTypes.find((type) => type.id === vehicleTypeId);
+  // Exactly one of these is set once a vehicle is picked: a grid column,
+  // priced per service, or a flat vehicle, priced as one figure.
+  const vehicleType = vehicleTypes.find((type) => type.id === vehicleId);
+  const flatVehicle = vehicleId ? getFlatVehicle(vehicleId) : undefined;
+  const pricedAsName = vehicleType?.name ?? flatVehicle?.name;
+
+  const flatRows = flatVehicle ? flatVehicleRows(flatVehicle) : [];
+  /*
+    Which size of a flat vehicle. With one size on the board there is
+    nothing to choose: that size is the booking — not a default in the
+    sense the note above warns about, because there is no other price it
+    could be. With several (Canter / P.R. / F.S.R.) the customer picks, and
+    nothing is preselected for the same reason no vehicle is.
+  */
+  const [pickedFlatRowId, setPickedFlatRowId] = useState<string | null>(null);
+  const flatRowId =
+    flatRows.length === 1
+      ? flatRows[0].id
+      : flatRows.some((row) => row.id === pickedFlatRowId)
+        ? pickedFlatRowId
+        : null;
+
+  /** How long this booking will hold the bay. Placeholder — see config. */
+  const holdMinutes = holdMinutesFor(vehicleId ?? "");
 
   /*
     What one choice implies about the others. `covered` is only ever
@@ -152,13 +218,13 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
     [selectedIds, covered],
   );
 
-  const totalKes = vehicleTypeId
-    ? selectionTotalKes(washPriceRows, priceBook, chargeable, vehicleTypeId)
-    : 0;
+  const lines = vehicleType
+    ? toLines(washPriceRows, priceBook, chargeable, vehicleType.id)
+    : flatVehicle && flatRowId
+      ? flatVehicleLines(priceBook, flatVehicle, flatRowId)
+      : [];
 
-  const lines = vehicleTypeId
-    ? toLines(washPriceRows, priceBook, chargeable, vehicleTypeId)
-    : [];
+  const totalKes = lines.reduce((total, line) => total + line.priceKes, 0);
 
   function toggleService(id: string) {
     setSelectionError(null);
@@ -170,9 +236,17 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
     });
   }
 
-  function chooseVehicle(id: VehicleTypeId) {
+  function chooseVehicle(id: BookingVehicleId) {
     setSelectionError(null);
-    setVehicleTypeId(id);
+    setVehicleId(id);
+    // A size belongs to one vehicle, and a time picked for a 30-minute
+    // booking may not exist for a 90-minute one. Both are chosen again.
+    setPickedFlatRowId(null);
+    setSelectedTime(null);
+    // A flat vehicle ignores the service ticks; they are kept so switching
+    // back to a car does not wipe them, and re-filtered when that happens.
+    const column = vehicleTypes.find((type) => type.id === id);
+    if (!column) return;
     /*
       Drop any service that has no price in the NEW column.
 
@@ -187,19 +261,29 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
       const next = new Set<string>();
       for (const serviceId of current) {
         const row = washPriceRows.find((entry) => entry.id === serviceId);
-        if (row && washPrice(priceBook, row.id, id) !== null) next.add(serviceId);
+        if (row && washPrice(priceBook, row.id, column.id) !== null) next.add(serviceId);
       }
       return next;
     });
   }
 
   function goToTime() {
-    if (!vehicleTypeId) {
+    if (!vehicleId) {
       setSelectionError("Pick a vehicle type first.");
       return;
     }
-    if (chargeable.size === 0) {
+    if (vehicleType && chargeable.size === 0) {
       setSelectionError("Pick at least one service.");
+      return;
+    }
+    if (flatVehicle && !flatRowId) {
+      setSelectionError(`Pick which ${flatVehicle.name.toLowerCase()} you are bringing.`);
+      return;
+    }
+    if (flatVehicle && lines.length === 0) {
+      setSelectionError(
+        `There is no listed price for a ${flatVehicle.name.toLowerCase()} yet — ask at the yard.`,
+      );
       return;
     }
     setSelectionError(null);
@@ -225,15 +309,26 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
     booked", which is a different and much more damaging thing to tell a
     customer than "this did not load".
   */
-  const slotsLoading = slotData.date !== selectedDate;
+  /*
+    Keyed by vehicle AND date: a lorry's grid for Saturday is not a
+    saloon's, so switching vehicle after looking at times has to read as
+    loading, not show the other vehicle's starts for a moment.
+  */
+  const currentSlotKey = slotKey(vehicleId, selectedDate);
+  const slotsLoading = slotData.key !== currentSlotKey;
   const slots = slotsLoading ? [] : slotData.slots;
   const slotsError = slotsLoading ? null : slotData.error;
 
   const fetchSlots = useCallback(
-    async (date: string): Promise<{ slots: Slot[]; error: string | null }> => {
+    async (
+      date: string,
+      vehicle: BookingVehicleId | null,
+    ): Promise<{ slots: Slot[]; error: string | null }> => {
       try {
         const response = await fetch(
-          `/api/slots?date=${encodeURIComponent(date)}`,
+          `/api/slots?date=${encodeURIComponent(date)}${
+            vehicle ? `&vehicle=${encodeURIComponent(vehicle)}` : ""
+          }`,
           { cache: "no-store" },
         );
         if (!response.ok) throw new Error(String(response.status));
@@ -261,20 +356,22 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
     if (!selectedDate) return;
     let cancelled = false;
     void (async () => {
-      const result = await fetchSlots(selectedDate);
-      if (!cancelled) setSlotData({ date: selectedDate, ...result });
+      const result = await fetchSlots(selectedDate, vehicleId);
+      if (!cancelled) {
+        setSlotData({ key: slotKey(vehicleId, selectedDate), ...result });
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [selectedDate, fetchSlots]);
+  }, [selectedDate, vehicleId, fetchSlots]);
 
   /** Refetch the current day on demand — used when a slot is lost mid-form. */
   const reloadSlots = useCallback(async () => {
     if (!selectedDate) return;
-    const result = await fetchSlots(selectedDate);
-    setSlotData({ date: selectedDate, ...result });
-  }, [selectedDate, fetchSlots]);
+    const result = await fetchSlots(selectedDate, vehicleId);
+    setSlotData({ key: slotKey(vehicleId, selectedDate), ...result });
+  }, [selectedDate, vehicleId, fetchSlots]);
 
   const selectedSlot = slots.find((slot) => slot.startTime === selectedTime);
 
@@ -313,7 +410,7 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
   }
 
   async function confirmBooking() {
-    if (!selectedSlot || !vehicleTypeId || !vehicleType) return;
+    if (!selectedSlot || !vehicleId) return;
     // Re-derived at submit rather than trusted from render, so what is
     // written is what the totals were computed from.
     if (lines.length === 0) return;
@@ -368,8 +465,12 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          vehicleTypeId,
-          serviceIds: [...chargeable],
+          vehicleTypeId: vehicleId,
+          // A flat vehicle's one line IS its size id; the server prices it
+          // against the flat board the same way.
+          serviceIds: vehicleType
+            ? [...chargeable]
+            : lines.map((line) => line.serviceId),
           date: selectedDate,
           startTime: selectedSlot.startTime,
           customerName: form.customerName.trim(),
@@ -433,13 +534,45 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
             Prices depend on the size of the vehicle, so pick that first.
           </p>
 
+          {/*
+            NOT A VEHICLE — THE OTHER DOOR, AT THE POINT OF CHOOSING.
+
+            Carpets and sofa sets are a request, not a slot, so they are a
+            link out rather than another button in the grid below: nothing
+            about them fits a picker that goes on to ask for a time and a
+            plate. It sits right above that grid because this is where
+            somebody holding a rug realises none of the options are theirs —
+            as a sentence in the page intro it read as further reading.
+
+            Styled as a card, not a picker button: grey ground, text left,
+            an arrow, and it navigates rather than selects. Not amber — the
+            one accent on this screen is Continue.
+          */}
+          <Link
+            href="/book/carpets"
+            className="lift mt-4 flex max-w-md items-center gap-3 rounded-slab border-2 border-slab-300 bg-slab-50 px-4 py-3 text-slab-900 hover:border-slab-900"
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs font-bold uppercase tracking-wide text-slab-500">
+                Not a vehicle?
+              </span>
+              <span className="block text-base font-bold">Carpets &amp; sofa sets</span>
+              <span className="block text-xs text-slab-600">
+                Drop-off or collection — no time slot needed.
+              </span>
+            </span>
+            <span aria-hidden="true" className="lift-nudge shrink-0 text-xl">
+              &rarr;
+            </span>
+          </Link>
+
           <div
-            className="mt-4 grid gap-2 sm:grid-cols-3"
+            className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3"
             role="group"
             aria-label="Choose a vehicle type"
           >
-            {vehicleTypes.map((type) => {
-              const active = type.id === vehicleTypeId;
+            {[...vehicleTypes, ...flatVehicles].map((type) => {
+              const active = type.id === vehicleId;
               return (
                 <button
                   key={type.id}
@@ -458,10 +591,58 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
             })}
           </div>
 
-          {!vehicleTypeId ? (
+          {!vehicleId ? (
             <p className="mt-6 rounded-slab border-2 border-dashed border-slab-300 px-4 py-8 text-center text-sm text-slab-600">
               Pick a vehicle type above to see the prices.
             </p>
+          ) : flatVehicle ? (
+            <>
+              {/*
+                ONE FIGURE PER SIZE, NOT A LIST OF SERVICES. The board prices
+                this vehicle under its own heading, so there is nothing to
+                tick. One size (Motorbike) is simply the booking; several
+                (Lorry, Bus) are a pick-one list with nothing preselected.
+                An unread size is shown in words and cannot be picked,
+                exactly like an unread cell — for full-size Bus that is the
+                "call to confirm" state, with the number to call.
+              */}
+              <h3 className="mt-8 text-base">{flatVehicle.name}</h3>
+              <p className="mt-1 text-sm text-slab-600">
+                {flatRows.length === 1
+                  ? "One price on the board, whatever it needs — there are no separate services to pick."
+                  : "Priced by size on the board, whatever it needs. Pick the one you are bringing."}
+              </p>
+
+              <ul
+                className="mt-4 flex flex-col gap-2"
+                role={flatRows.length > 1 ? "radiogroup" : undefined}
+                aria-label={
+                  flatRows.length > 1
+                    ? `Which ${flatVehicle.name.toLowerCase()}`
+                    : undefined
+                }
+              >
+                {flatRows.map((row) => (
+                  <FlatSizeOption
+                    key={row.id}
+                    id={row.id}
+                    name={row.name}
+                    priceKes={flatPrice(priceBook, row.id)}
+                    selectable={flatRows.length > 1}
+                    checked={row.id === flatRowId}
+                    onPick={() => {
+                      setSelectionError(null);
+                      setPickedFlatRowId(row.id);
+                    }}
+                  />
+                ))}
+              </ul>
+
+              <SelectionTotal
+                label={lines[0]?.name ?? "Nothing picked yet"}
+                totalKes={totalKes}
+              />
+            </>
           ) : (
             <>
               <h3 className="mt-8 text-base">
@@ -478,7 +659,9 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
                     key={row.id}
                     id={row.id}
                     name={row.name}
-                    priceKes={washPrice(priceBook, row.id, vehicleTypeId)}
+                    priceKes={
+                      vehicleType ? washPrice(priceBook, row.id, vehicleType.id) : null
+                    }
                     checked={selectedIds.has(row.id)}
                     coveredBy={covered.get(row.id)}
                     onToggle={() => toggleService(row.id)}
@@ -501,18 +684,14 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
                 </p>
               ) : null}
 
-              <div className="mt-6 rounded-slab border-2 border-slab-900 bg-white">
-                <div className="flex items-center justify-between gap-4 px-4 py-3">
-                  <span className="text-sm font-bold uppercase tracking-wide text-slab-700">
-                    {lines.length === 0
-                      ? "Nothing picked yet"
-                      : `${lines.length} service${lines.length === 1 ? "" : "s"}`}
-                  </span>
-                  <span className="text-2xl font-extrabold">
-                    {formatKes(totalKes)}
-                  </span>
-                </div>
-              </div>
+              <SelectionTotal
+                label={
+                  lines.length === 0
+                    ? "Nothing picked yet"
+                    : `${lines.length} service${lines.length === 1 ? "" : "s"}`
+                }
+                totalKes={totalKes}
+              />
             </>
           )}
 
@@ -547,9 +726,9 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
             lie a customer measures with their own watch.
           */}
           <p className="mt-1 text-sm text-slab-600">
-            We hold the bay for {formatDuration(DURATION)} per booking. If
-            you have picked several services it may take longer — the bay
-            will tell you when you arrive.
+            {flatVehicle
+              ? `We hold the bay for ${formatDuration(holdMinutes)} for a ${flatVehicle.name.toLowerCase()}.`
+              : `We hold the bay for ${formatDuration(holdMinutes)} per booking. If you have picked several services it may take longer — the bay will tell you when you arrive.`}
           </p>
 
           {paymentError ? (
@@ -718,8 +897,10 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
               id="vehicle"
               label="Vehicle"
               required
-              hint="Make, model and number plate, so we know which car is yours."
-              placeholder="Toyota Fielder, KDA 123X"
+              hint={(flatVehicle ? PLATE_PROMPT[flatVehicle.id] : CAR_PLATE_PROMPT).hint}
+              placeholder={
+                (flatVehicle ? PLATE_PROMPT[flatVehicle.id] : CAR_PLATE_PROMPT).placeholder
+              }
               value={form.vehicle}
               error={errors.vehicle}
               onChange={(event) => update("vehicle", event.target.value)}
@@ -745,7 +926,7 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
       ) : null}
 
       {/* ----------------------- Step 4: payment ------------------------ */}
-      {step === 3 && selectedSlot && vehicleType ? (
+      {step === 3 && selectedSlot && pricedAsName ? (
         <section className="mt-8" aria-labelledby="step-payment">
           <h2 id="step-payment" className="text-xl">
             Confirm and pay
@@ -760,7 +941,7 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
             */}
             <div className="border-b-2 border-slab-100 px-4 py-3">
               <p className="text-sm font-bold uppercase tracking-wide text-slab-500">
-                {vehicleType.name}
+                {pricedAsName}
               </p>
             </div>
             <ul className="divide-y-2 divide-slab-100">
@@ -870,6 +1051,101 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
           </div>
         </section>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * One size of a flat-priced vehicle, in one of three states.
+ *
+ *   ONLY SIZE    the vehicle has one figure (Motorbike): shown, not picked
+ *   PICKABLE     one of several sizes with a real figure: a radio row
+ *   NOT PRICED   no figure read off the board (full-size Bus): listed, greyed,
+ *                no radio, and it says to call — with the number — rather
+ *                than hiding a vehicle the yard does wash
+ */
+function FlatSizeOption({
+  id,
+  name,
+  priceKes,
+  selectable,
+  checked,
+  onPick,
+}: {
+  id: string;
+  name: string;
+  priceKes: number | null;
+  selectable: boolean;
+  checked: boolean;
+  onPick: () => void;
+}) {
+  if (priceKes === null) {
+    return (
+      <li className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-slab border-2 border-dashed border-slab-300 bg-slab-100 px-4 py-3">
+        <span className="text-sm font-semibold text-slab-600">{name}</span>
+        <span className="text-xs font-bold uppercase tracking-wide text-slab-500">
+          Price not listed - call to confirm{" "}
+          <a
+            href={telHref(business.phone)}
+            className="whitespace-nowrap normal-case underline underline-offset-4 hover:text-slab-900"
+          >
+            {business.phone}
+          </a>
+        </span>
+      </li>
+    );
+  }
+
+  if (!selectable) {
+    return (
+      <li className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-slab border-2 border-slab-900 bg-white px-4 py-3">
+        <span className="text-sm font-semibold">{name}</span>
+        <span className="text-sm font-bold whitespace-nowrap">{formatKes(priceKes)}</span>
+      </li>
+    );
+  }
+
+  return (
+    <li>
+      <label
+        className={`flex min-h-12 cursor-pointer items-center justify-between gap-4 rounded-slab border-2 px-4 py-3 transition-colors duration-150 ease-plain ${
+          checked
+            ? "border-slab-900 bg-white"
+            : "border-slab-200 bg-white hover:border-slab-500"
+        }`}
+      >
+        <span className="flex items-center gap-3">
+          <input
+            type="radio"
+            name="flat-size"
+            value={id}
+            checked={checked}
+            onChange={onPick}
+            className="size-4 shrink-0 accent-hivis"
+          />
+          <span className="text-sm font-semibold">{name}</span>
+        </span>
+        <span className="text-sm font-bold whitespace-nowrap">{formatKes(priceKes)}</span>
+      </label>
+    </li>
+  );
+}
+
+/** Which grid a set of slots belongs to. */
+function slotKey(vehicleId: BookingVehicleId | null, date: string): string {
+  return `${vehicleId ?? ""}|${date}`;
+}
+
+/** The running total under the picker, for a column or a flat vehicle. */
+function SelectionTotal({ label, totalKes }: { label: string; totalKes: number }) {
+  return (
+    <div className="mt-6 rounded-slab border-2 border-slab-900 bg-white">
+      <div className="flex items-center justify-between gap-4 px-4 py-3">
+        <span className="text-sm font-bold uppercase tracking-wide text-slab-700">
+          {label}
+        </span>
+        <span className="text-2xl font-extrabold">{formatKes(totalKes)}</span>
+      </div>
     </div>
   );
 }

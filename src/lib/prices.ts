@@ -27,6 +27,7 @@ import type {
   PriceBook,
   PriceCell,
   Product,
+  ProductVariant,
   VehicleTypeId,
   WashPriceRow,
 } from "@/types";
@@ -66,9 +67,64 @@ export function flatPrice(book: PriceBook, rowId: string): PriceCell {
   return book.flat[rowId] ?? null;
 }
 
-/** One concrete product. Null where the price is not confirmed. */
-export function productPrice(book: PriceBook, productId: string): PriceCell {
-  return book.product[productId] ?? null;
+/**
+ * The key one product cell is stored under. One definition, used by both
+ * sides, mirroring `washKey`.
+ *
+ * A product with no variants keys on its bare id — which is also what the
+ * database's empty-string `variant_id` folds to, so the rows that existed
+ * before variants keep the keys they always had.
+ */
+export function productKey(productId: string, variantId?: string): string {
+  return variantId ? `${productId}:${variantId}` : productId;
+}
+
+/**
+ * One concrete product, or one size of it. Null where the price is not
+ * confirmed.
+ *
+ * For a product sold by height, calling this WITHOUT a variant returns
+ * null by construction — there is no single price to read, and the old
+ * one-figure row that predates the tiers is depriced. Use `variantPrices`
+ * or `productPriceRange` for those.
+ */
+export function productPrice(
+  book: PriceBook,
+  productId: string,
+  variantId?: string,
+): PriceCell {
+  return book.product[productKey(productId, variantId)] ?? null;
+}
+
+/** Every size of a product, in catalogue order, with its current price. */
+export function variantPrices(
+  book: PriceBook,
+  product: Product,
+): { variant: ProductVariant; priceKes: PriceCell }[] {
+  return (product.variants ?? []).map((variant) => ({
+    variant,
+    priceKes: productPrice(book, product.id, variant.id),
+  }));
+}
+
+/**
+ * The cheapest and dearest CONFIRMED figure for a product, for a card
+ * that has room for one line. A single-price product gives min === max.
+ * Null when nothing about it is priced — the caller says "not listed".
+ */
+export function productPriceRange(
+  book: PriceBook,
+  product: Product,
+): { minKes: number; maxKes: number } | null {
+  const prices = (
+    product.variants
+      ? variantPrices(book, product).map((entry) => entry.priceKes)
+      : [productPrice(book, product.id)]
+  ).filter((price): price is number => price !== null);
+
+  return prices.length > 0
+    ? { minKes: Math.min(...prices), maxKes: Math.max(...prices) }
+    : null;
 }
 
 /**
@@ -97,9 +153,12 @@ export function cheapestConfirmedPriceKes(book: PriceBook): number | null {
  * would have to carry a null, and the checkout would have to total it. The
  * catalogue still LISTS it, saying the price is not available and pointing
  * at the phone, exactly as the board does for an unread cell.
+ *
+ * A product sold by height is purchasable when at least one height is
+ * priced; the picker disables the heights that are not.
  */
 export function isPurchasable(book: PriceBook, product: Product): boolean {
-  return !product.quoteOnly && productPrice(book, product.id) !== null;
+  return !product.quoteOnly && productPriceRange(book, product) !== null;
 }
 
 /* ------------------------------------------------------------------ */

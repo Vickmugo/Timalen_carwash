@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { PaymentBadge } from "@/components/Badge";
 import { ButtonLink } from "@/components/Button";
 import { business } from "@/data/business";
+import { cartLineKey, cartLineName } from "@/lib/cart-line";
 import { formatKes } from "@/lib/format";
 import { receiptPath } from "@/lib/receipt";
 import { useIsHydrated, useOrders } from "@/lib/store";
@@ -67,11 +68,11 @@ export function OrderConfirmation() {
         <ul className="divide-y-2 divide-slab-100">
           {order.lines.map((line) => (
             <li
-              key={line.productId}
+              key={cartLineKey(line)}
               className="flex flex-wrap justify-between gap-2 px-4 py-3"
             >
               <span className="text-sm">
-                <span className="font-semibold">{line.name}</span>
+                <span className="font-semibold">{cartLineName(line)}</span>
                 <span className="text-slab-500"> x {line.quantity}</span>
               </span>
               <span className="text-sm font-bold">

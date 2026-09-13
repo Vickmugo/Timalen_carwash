@@ -67,6 +67,7 @@ import {
 import { Button } from "@/components/Button";
 import { PageHeader } from "@/components/PageHeader";
 import { adminUsers, UNATTRIBUTED } from "@/data/admin-users";
+import { CarpetRequests } from "./CarpetRequests";
 import { PriceEditor } from "./PriceEditor";
 import { productCategories } from "@/data/products";
 import type {
@@ -104,6 +105,7 @@ import {
   bookingServiceText,
   bookingVehicleTypeName,
 } from "@/lib/booking";
+import { cartLineKey, cartLineName } from "@/lib/cart-line";
 import { canIssueReceipt, receiptPath } from "@/lib/receipt";
 import {
   addChangeRequest,
@@ -921,7 +923,7 @@ export default function AdminPage() {
       statusWords(order.paymentStatus),
       dateTerms(order.createdAt),
       formatTimestamp(order.createdAt),
-      order.lines.map((line) => line.name).join(" "),
+      order.lines.map((line) => cartLineName(line)).join(" "),
     ]),
   );
 
@@ -1197,6 +1199,17 @@ export default function AdminPage() {
                 </table>
               </div>
             )}
+          </Section>
+
+          {/* ------------------ Carpet & sofa-set requests ------------------ */}
+          <Section
+            id="admin-carpets"
+            title="Carpet & sofa-set requests"
+            counts={["from /book/carpets — stored on the server, read-only here"]}
+            sort={null}
+            filter={null}
+          >
+            <CarpetRequests />
           </Section>
 
           {/* -------------------------- Orders -------------------------- */}
@@ -1541,8 +1554,8 @@ function QuoteRows({
                   <dd className="mt-0.5">
                     <ul className="flex flex-col gap-0.5">
                       {quote.lines.map((line) => (
-                        <li key={line.productId}>
-                          {line.name}{" "}
+                        <li key={cartLineKey(line)}>
+                          {cartLineName(line)}{" "}
                           <span className="text-slab-500">
                             x {line.quantity}
                           </span>
@@ -1577,8 +1590,8 @@ function OrderRow({ order }: { order: Order }) {
       <td className={td} data-label="Items">
         <ul className="flex flex-col gap-0.5">
           {order.lines.map((line) => (
-            <li key={line.productId}>
-              {line.name}{" "}
+            <li key={cartLineKey(line)}>
+              {cartLineName(line)}{" "}
               <span className="text-slab-500">x {line.quantity}</span>
             </li>
           ))}
@@ -1925,12 +1938,12 @@ function ChangeRequestForm() {
                 Category
               </label>
               {/*
-                The five real categories from src/data/products.ts, plus an
-                escape hatch. The yard genuinely makes things that fit none
-                of the five — air vents, culverts, cornices are all named on
-                the quote page already — and filing one of those under
-                "Slabs" because the dropdown had nothing else creates a
-                request the developer has to undo before they can act on it.
+                The eight real categories from src/data/products.ts, plus
+                an escape hatch. The yard genuinely makes things that fit
+                none of them — air vents and culverts are named on the quote
+                page already — and filing one of those under "Slabs" because
+                the dropdown had nothing else creates a request the
+                developer has to undo before they can act on it.
               */}
               <select
                 id="cr-category"

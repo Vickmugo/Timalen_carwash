@@ -15,6 +15,7 @@
 
 import { operatingHours } from "@/data/business";
 import { bookingConfig } from "@/data/config";
+import { getFlatVehicle } from "@/data/services";
 import type { Booking, WeekdayIndex } from "@/types";
 import { fromDateKey, minutesToTime, timeToMinutes, toDateKey } from "./format";
 
@@ -26,6 +27,22 @@ export interface Slot {
   available: boolean;
   /** Why it is unavailable, for the tooltip/label. */
   reason?: "booked" | "too_soon";
+}
+
+/**
+ * HOW LONG A BOOKING FOR THIS VEHICLE HOLDS THE BAY.
+ *
+ * One function so the grid the customer is offered (/api/slots), the slot
+ * the server re-checks before writing (/api/bookings) and the length the
+ * picker tells them about can never disagree. Anything that is not a
+ * flat vehicle with its own figure — every grid column, and an unknown id —
+ * gets the standard placeholder block.
+ */
+export function holdMinutesFor(vehicleId: string): number {
+  return (
+    getFlatVehicle(vehicleId)?.durationMinutes ??
+    bookingConfig.placeholderWashDurationMinutes
+  );
 }
 
 export function getDayHours(dateKey: string) {

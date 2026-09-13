@@ -129,9 +129,9 @@ export function ProductGallery({
       slides={slides}
       label={`Photographs of ${product.name}`}
       controls="arrows"
-      // No autoAdvanceMs: a catalogue of five items with sliders on four of
-      // them, all cycling by themselves, would be a page that will not sit
-      // still while someone reads a price. These move when asked.
+      // No autoAdvanceMs: a catalogue this size with a slider on several of
+      // its cards, all cycling by themselves, would be a page that will not
+      // sit still while someone reads a price. These move when asked.
       frameClassName={ratios[variant]}
       crossfadeClassName="duration-200 ease-plain motion-reduce:transition-none"
       sizes={imageSizes[variant]}

@@ -66,8 +66,11 @@
  * =====================================================================
  */
 
+import { bookingConfig } from "@/data/config";
 import type {
   FlatPriceGroup,
+  FlatPriceRow,
+  FlatVehicle,
   VehicleType,
   WashPriceRow,
 } from "@/types";
@@ -231,6 +234,52 @@ export const flatPriceGroups: FlatPriceGroup[] = [
  * booking for real run the same lookup over the same book. What stays
  * here is what this file is still the source of truth for: structure.
  */
+
+/* ------------------------------------------------------------------ */
+/* Flat-priced vehicles the booking form offers                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * VEHICLES /book OFFERS BESIDE THE GRID'S THREE COLUMNS.
+ *
+ * Each points at a group above rather than carrying rows of its own, so
+ * the board stays the one place a size is named. The picker lists these
+ * after Saloon / Family Car / Pick-up, in this order.
+ *
+ * NOT CARPETS. A carpet is not a vehicle and does not occupy the bay for a
+ * slot; it goes through the drop-off request instead.
+ *
+ * LORRIES AND BUSES hold the bay for the longer placeholder block. Each
+ * has several sizes on the board, so the customer picks one. Full-size Bus
+ * has no legible price and is shown but cannot be booked — it becomes
+ * bookable the moment a figure is entered in the staff price editor, with
+ * no code change, because an unread size is refused by the same null
+ * check as an unread grid cell.
+ */
+export const flatVehicles: FlatVehicle[] = [
+  { id: "motorbike", name: "Motorbike", groupId: "motorbikes" },
+  {
+    id: "lorry",
+    name: "Lorry",
+    groupId: "lorries",
+    durationMinutes: bookingConfig.placeholderLargeVehicleDurationMinutes,
+  },
+  {
+    id: "bus",
+    name: "Bus",
+    groupId: "buses",
+    durationMinutes: bookingConfig.placeholderLargeVehicleDurationMinutes,
+  },
+];
+
+export function getFlatVehicle(id: string): FlatVehicle | undefined {
+  return flatVehicles.find((vehicle) => vehicle.id === id);
+}
+
+/** The priced sizes of a flat vehicle, in board order. */
+export function flatVehicleRows(vehicle: FlatVehicle): FlatPriceRow[] {
+  return flatPriceGroups.find((group) => group.id === vehicle.groupId)?.rows ?? [];
+}
 
 export function getWashPriceRow(id: string): WashPriceRow | undefined {
   return washPriceRows.find((row) => row.id === id);

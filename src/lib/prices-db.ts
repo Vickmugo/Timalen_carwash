@@ -24,8 +24,10 @@
  */
 
 import { BUSINESS_ID, getSupabaseServiceRoleClient } from "@/lib/supabase";
-import { washKey } from "@/lib/prices";
+import { productKey, washKey } from "@/lib/prices";
 import { UNATTRIBUTED } from "@/data/admin-users";
+import { getProductById } from "@/data/products";
+import { flatPriceGroups, getVehicleType, getWashPriceRow } from "@/data/services";
 import type { PriceBook, PriceCell, VehicleTypeId } from "@/types";
 
 /* ------------------------------------------------------------------ */
@@ -45,59 +47,122 @@ interface FlatPriceRowRecord {
 
 interface ProductPriceRow {
   product_id: string;
+  /** '' for a product sold at one price. Never null; see the migration. */
+  variant_id: string;
   price_kes: number | null;
 }
 
+export interface PriceBookRead {
+  book: PriceBook;
+  /**
+   * The sections that could not be read; empty when all three were. Their
+   * cells are simply absent from `book`, so every lookup into them folds
+   * to null like any other unpriced cell.
+   */
+  unavailable: PriceKind[];
+}
+
 /**
- * THE WHOLE PRICE BOOK IN THREE QUERIES, RUN TOGETHER.
+ * One section of the book, or null if it could not be read. Never throws:
+ * a PostgREST error and a thrown one (network, bad URL) both end up here,
+ * logged with the table name so the server log says which section went.
+ */
+async function readSection<T>(
+  table: string,
+  query: () => PromiseLike<{ data: unknown; error: { message: string } | null }>,
+): Promise<T[] | null> {
+  try {
+    const { data, error } = await query();
+    if (!error) return (data ?? []) as T[];
+    console.error(`[prices] ${table} unreadable, its prices show as not listed: ${error.message}`);
+  } catch (error) {
+    console.error(`[prices] ${table} unreadable, its prices show as not listed:`, error);
+  }
+  return null;
+}
+
+/**
+ * THE WHOLE PRICE BOOK IN THREE QUERIES, RUN TOGETHER — AND NONE OF THEM
+ * CAN TAKE A PAGE DOWN.
  *
  * `Promise.all` rather than three awaits in sequence: they do not depend
  * on each other, and this is on the critical path of every page that shows
  * a price.
  *
- * Throws on failure rather than returning an empty book. That is the
- * important decision in this file. An empty book renders as "price not
- * listed" on every row of a public price list — which looks like a
- * deliberate statement about the business rather than a broken database,
- * and would quietly tell customers the yard has stopped pricing its work.
- * A page that fails to render is the better failure: it is obviously
- * broken, and it gets fixed.
+ * NEVER THROWS. This used to be the opposite decision: throw rather than
+ * return an empty book, on the reasoning that "price not listed" on every
+ * row reads as a statement about the business, where a page that fails to
+ * render is obviously broken and gets fixed. The first real failure showed
+ * what that costs. A missing column on `product_prices` alone took down
+ * /, /book, /prices and /products — including the car wash booking flow,
+ * which does not sell a single concrete product. One unreadable table
+ * cost the whole site.
+ *
+ * So a failure is now contained to the cells it affects. Each section is
+ * read on its own; one that fails is left empty and named in
+ * `unavailable`, and every item in it renders as "price not listed — ask
+ * at the yard", while the other two sections price normally. The
+ * "obviously broken" half of the old argument is kept where it belongs:
+ * in the server log, on the staff price screen (which names the section),
+ * and at the one place money is taken — /api/bookings refuses to price a
+ * booking from a wash section it could not read.
  */
-export async function getPriceBook(): Promise<PriceBook> {
-  const db = getSupabaseServiceRoleClient();
-
-  const [services, flats, products] = await Promise.all([
-    db
-      .from("service_prices")
-      .select("service_id, vehicle_type_id, price_kes")
-      .eq("business_id", BUSINESS_ID),
-    db
-      .from("flat_prices")
-      .select("row_id, price_kes")
-      .eq("business_id", BUSINESS_ID),
-    db
-      .from("product_prices")
-      .select("product_id, price_kes")
-      .eq("business_id", BUSINESS_ID),
-  ]);
-
-  if (services.error) throw new Error(`getPriceBook services: ${services.error.message}`);
-  if (flats.error) throw new Error(`getPriceBook flat: ${flats.error.message}`);
-  if (products.error) throw new Error(`getPriceBook products: ${products.error.message}`);
-
+export async function readPriceBook(): Promise<PriceBookRead> {
   const book: PriceBook = { wash: {}, flat: {}, product: {} };
 
-  for (const row of (services.data ?? []) as ServicePriceRow[]) {
-    book.wash[washKey(row.service_id, row.vehicle_type_id)] = row.price_kes;
-  }
-  for (const row of (flats.data ?? []) as FlatPriceRowRecord[]) {
-    book.flat[row.row_id] = row.price_kes;
-  }
-  for (const row of (products.data ?? []) as ProductPriceRow[]) {
-    book.product[row.product_id] = row.price_kes;
+  let db: ReturnType<typeof getSupabaseServiceRoleClient>;
+  try {
+    db = getSupabaseServiceRoleClient();
+  } catch (error) {
+    console.error("[prices] no database client, every price shows as not listed:", error);
+    return { book, unavailable: ["wash", "flat", "product"] };
   }
 
-  return book;
+  const [services, flats, products] = await Promise.all([
+    readSection<ServicePriceRow>("service_prices", () =>
+      db
+        .from("service_prices")
+        .select("service_id, vehicle_type_id, price_kes")
+        .eq("business_id", BUSINESS_ID),
+    ),
+    readSection<FlatPriceRowRecord>("flat_prices", () =>
+      db
+        .from("flat_prices")
+        .select("row_id, price_kes")
+        .eq("business_id", BUSINESS_ID),
+    ),
+    readSection<ProductPriceRow>("product_prices", () =>
+      db
+        .from("product_prices")
+        .select("product_id, variant_id, price_kes")
+        .eq("business_id", BUSINESS_ID),
+    ),
+  ]);
+
+  const unavailable: PriceKind[] = [];
+  if (services === null) unavailable.push("wash");
+  if (flats === null) unavailable.push("flat");
+  if (products === null) unavailable.push("product");
+
+  for (const row of services ?? []) {
+    book.wash[washKey(row.service_id, row.vehicle_type_id)] = row.price_kes;
+  }
+  for (const row of flats ?? []) {
+    book.flat[row.row_id] = row.price_kes;
+  }
+  for (const row of products ?? []) {
+    book.product[productKey(row.product_id, row.variant_id)] = row.price_kes;
+  }
+
+  return { book, unavailable };
+}
+
+/**
+ * The book alone, for a page that only renders it. Never throws; a section
+ * that could not be read prices as not listed. See `readPriceBook`.
+ */
+export async function getPriceBook(): Promise<PriceBook> {
+  return (await readPriceBook()).book;
 }
 
 /* ------------------------------------------------------------------ */
@@ -126,11 +191,17 @@ const TABLES = {
   product: { table: "product_prices", fk: "product_price_id" },
 } as const;
 
+/** What identifies one cell. Which fields matter depends on the kind. */
+export interface PriceCellKey {
+  serviceId?: string;
+  vehicleTypeId?: VehicleTypeId;
+  id?: string;
+  /** Products only. Omitted for a product sold at one price. */
+  variantId?: string;
+}
+
 /** Narrows the `.eq()` filters that identify one cell of a given kind. */
-function cellFilter(
-  kind: PriceKind,
-  key: { serviceId?: string; vehicleTypeId?: VehicleTypeId; id?: string },
-): Record<string, string> {
+function cellFilter(kind: PriceKind, key: PriceCellKey): Record<string, string> {
   if (kind === "wash") {
     return {
       service_id: key.serviceId ?? "",
@@ -138,7 +209,10 @@ function cellFilter(
     };
   }
   if (kind === "flat") return { row_id: key.id ?? "" };
-  return { product_id: key.id ?? "" };
+  // variant_id is ALWAYS filtered, '' included. Leaving it off for a
+  // single-price product would match every height of a tiered one, and
+  // maybeSingle() would fail on the second row rather than on the mistake.
+  return { product_id: key.id ?? "", variant_id: key.variantId ?? "" };
 }
 
 /**
@@ -173,7 +247,7 @@ function cellFilter(
  */
 export async function setPrice(
   kind: PriceKind,
-  key: { serviceId?: string; vehicleTypeId?: VehicleTypeId; id?: string },
+  key: PriceCellKey,
   newPriceKes: PriceCell,
   by: string,
 ): Promise<SetPriceResult> {
@@ -237,14 +311,85 @@ export async function setPrice(
 
 export interface PriceChangeEntry {
   id: string;
+  /** What moved, in the editor's own wording: "Fencing Posts, 7 ft". */
+  item: string;
   oldPriceKes: PriceCell;
   newPriceKes: PriceCell;
   by: string;
   at: string;
 }
 
+interface PriceChangeRecord {
+  id: string;
+  old_price_kes: number | null;
+  new_price_kes: number | null;
+  changed_by: string;
+  changed_at: string;
+  // The cell each entry moved, embedded through the log's foreign keys.
+  // Exactly one is set; the one-parent CHECK on the table guarantees it.
+  service_prices: { service_id: string; vehicle_type_id: string } | null;
+  flat_prices: { row_id: string } | null;
+  product_prices: { product_id: string; variant_id: string } | null;
+}
+
 /**
- * The most recent price moves, newest first.
+ * WHAT A LOGGED CELL IS, IN THE WORDS STAFF USE.
+ *
+ * The price tables carry ids and no names, deliberately — names belong to
+ * the data files (see the header of the price-tables migration). So the
+ * log is joined to the cell each entry moved, and that cell is named here
+ * from the same files the editor reads, in the same wording: "Fencing
+ * Posts, 7 ft" is the editor's row label and the line name on a receipt.
+ *
+ * Resolved when the log is read, not copied into `price_changes` when an
+ * entry is written. A copied name would need a migration, and would go
+ * stale on a rename where this does not: the row that was `column-cap`
+ * reads as Wall Caps for its whole history, which is right, because it is
+ * the same row and the same product.
+ *
+ * An id the files no longer know is shown AS AN ID and says so, rather
+ * than dropped or guessed at — the log is exactly where somebody will look
+ * for a thing that has since gone.
+ */
+function describeLoggedCell(record: PriceChangeRecord): string {
+  if (record.product_prices) {
+    const { product_id: productId, variant_id: variantId } = record.product_prices;
+    const product = getProductById(productId);
+    if (!product) {
+      return `${productId}${variantId ? `, ${variantId}` : ""} (no longer in the catalogue)`;
+    }
+    if (!variantId) {
+      // The one-figure row a product had before it was priced by height.
+      // The tiers migration depriced it rather than deleting it.
+      return product.variants ? `${product.name}, old single price (retired)` : product.name;
+    }
+    const variant = product.variants?.find((entry) => entry.id === variantId);
+    return variant
+      ? `${product.name}, ${variant.label}`
+      : `${product.name}, ${variantId} (height no longer sold)`;
+  }
+
+  if (record.service_prices) {
+    const { service_id: serviceId, vehicle_type_id: vehicleTypeId } = record.service_prices;
+    const service = getWashPriceRow(serviceId)?.name ?? `${serviceId} (no longer on the board)`;
+    return `${service}, ${getVehicleType(vehicleTypeId)?.name ?? vehicleTypeId}`;
+  }
+
+  if (record.flat_prices) {
+    const { row_id: rowId } = record.flat_prices;
+    for (const group of flatPriceGroups) {
+      const row = group.rows.find((entry) => entry.id === rowId);
+      // "Carpets, Small" — but not "Motorbike, Motorbike".
+      if (row) return row.name === group.name ? row.name : `${group.name}, ${row.name}`;
+    }
+    return `${rowId} (no longer on the board)`;
+  }
+
+  return "Unknown item";
+}
+
+/**
+ * The most recent price moves, newest first, each named.
  *
  * Capped by the caller. Unlike the booking history there is no per-cell
  * limit in the schema — this is an audit trail on the numbers that decide
@@ -258,17 +403,23 @@ export async function listRecentPriceChanges(
 
   const { data, error } = await db
     .from("price_changes")
-    .select("id, old_price_kes, new_price_kes, changed_by, changed_at")
+    .select(
+      "id, old_price_kes, new_price_kes, changed_by, changed_at, " +
+        "service_prices (service_id, vehicle_type_id), " +
+        "flat_prices (row_id), " +
+        "product_prices (product_id, variant_id)",
+    )
     .order("changed_at", { ascending: false })
     .limit(limit);
 
   if (error) throw new Error(`listRecentPriceChanges: ${error.message}`);
 
-  return (data ?? []).map((row) => ({
-    id: row.id as string,
-    oldPriceKes: (row.old_price_kes ?? null) as PriceCell,
-    newPriceKes: (row.new_price_kes ?? null) as PriceCell,
-    by: row.changed_by as string,
-    at: new Date(row.changed_at as string).toISOString(),
+  return ((data ?? []) as unknown as PriceChangeRecord[]).map((record) => ({
+    id: record.id,
+    item: describeLoggedCell(record),
+    oldPriceKes: record.old_price_kes ?? null,
+    newPriceKes: record.new_price_kes ?? null,
+    by: record.changed_by,
+    at: new Date(record.changed_at).toISOString(),
   }));
 }

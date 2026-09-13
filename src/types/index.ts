@@ -106,6 +106,37 @@ export interface FlatPriceRow {
   /* Priced in `flat_prices`, keyed by `id`. See WashPriceRow above. */
 }
 
+/**
+ * A VEHICLE /book CAN WASH THAT IS NOT A COLUMN OF THE GRID.
+ *
+ * The board prices these as one figure per size under a heading of their
+ * own — no Body Wash, no Engine Wash — so they are not a fourth
+ * `VehicleTypeId`. That type is the grid's columns, and everything that
+ * iterates it (the /prices table, the home summary, the staff editor, the
+ * CHECK on `service_prices`) would grow a column of nothing.
+ */
+export type FlatVehicleId = "motorbike" | "lorry" | "bus";
+
+/** Anything a booking can be priced against: a grid column or a flat vehicle. */
+export type BookingVehicleId = VehicleTypeId | FlatVehicleId;
+
+export interface FlatVehicle {
+  id: FlatVehicleId;
+  /** What the picker button says. */
+  name: string;
+  /**
+   * The `FlatPriceGroup` whose rows are this vehicle's priced sizes. One
+   * row means one price and nothing to choose; several mean the customer
+   * picks which one they are bringing.
+   */
+  groupId: string;
+  /**
+   * How long a booking holds the bay. Absent means the standard
+   * placeholder block every car gets; see `bookingConfig`.
+   */
+  durationMinutes?: number;
+}
+
 /** A headed block of flat-priced items, in board order. */
 export interface FlatPriceGroup {
   id: string;
@@ -143,7 +174,13 @@ export interface PriceBook {
   wash: Record<string, PriceCell>;
   /** Keyed by `FlatPriceRow.id`. */
   flat: Record<string, PriceCell>;
-  /** Keyed by `Product.id`. */
+  /**
+   * Keyed by `productKey()` in src/lib/prices.ts: the bare `Product.id`
+   * for a product sold at one price, `"<productId>:<variantId>"` for one
+   * height of a product sold by height. The same shape as `wash`, one
+   * dimension narrower — a product crossed with a size instead of a service
+   * crossed with a vehicle.
+   */
   product: Record<string, PriceCell>;
 }
 
@@ -155,8 +192,11 @@ export type ProductCategoryId =
   | "fencing-posts"
   | "slabs"
   | "spindles"
-  | "column-caps"
-  | "road-kerbs";
+  | "wall-caps"
+  | "road-kerbs"
+  | "channels"
+  | "cornices"
+  | "cabros";
 
 export interface ProductCategory {
   id: ProductCategoryId;
@@ -176,6 +216,21 @@ export interface ProductSpec {
   value: string;
 }
 
+/**
+ * ONE PRICED SIZE OF A PRODUCT — "7 ft", "18 in".
+ *
+ * Like `WashPriceRow`, it carries no price: the figure is a row in
+ * `product_prices` keyed by the product id crossed with this `id`. What
+ * lives here is the part that is a transcription rather than a business
+ * decision — the id, the wording, the order the picker shows them in.
+ */
+export interface ProductVariant {
+  /** Stable key, stored in `product_prices.variant_id`. e.g. "7ft". */
+  id: string;
+  /** What the customer reads on the picker, the cart and the receipt. */
+  label: string;
+}
+
 export interface Product {
   id: string;
   /** URL segment: /products/[slug] */
@@ -186,6 +241,12 @@ export interface Product {
   /** e.g. "per piece", "per square metre". Shown next to the price. */
   unitLabel: string;
   /* Priced in `product_prices`, keyed by `id`. See WashPriceRow above. */
+  /**
+   * Present only on a product sold in priced sizes. When it is, the
+   * product has NO single price — every figure is per variant, and a cart
+   * line for it must name one. Absent means one price for the product.
+   */
+  variants?: ProductVariant[];
   status: FulfilmentStatus;
   /**
    * Bypasses the cart entirely and always routes to the quote form —
@@ -222,8 +283,24 @@ export interface Product {
 /* Cart                                                                */
 /* ------------------------------------------------------------------ */
 
+/**
+ * One line in the basket. A line is ONE PRICED THING: for a product sold
+ * by height that means one height, so 7 ft and 10 ft posts in the same
+ * basket are two lines, each with its own price and its own quantity.
+ * Identify a line with `cartLineKey()` in src/lib/cart-line.ts, never with
+ * `productId` alone — two lines can share it.
+ */
 export interface CartLine {
   productId: string;
+  /**
+   * `ProductVariant.id` and its label AS THEY READ when the line was made.
+   * Absent on a product sold at one price — and on every line saved before
+   * variants existed, which can still be sitting in a visitor's
+   * localStorage. src/lib/quote.ts refuses to check out a line that is
+   * missing a variant its product now requires.
+   */
+  variantId?: string;
+  variantLabel?: string;
   slug: string;
   name: string;
   unitLabel: string;
@@ -295,9 +372,9 @@ export interface Booking {
     through those rather than touching these fields directly.
   */
 
-  /** Which board column priced this booking. */
-  vehicleTypeId?: VehicleTypeId;
-  /** The column's name as it read at the time, e.g. "Family Car". */
+  /** Which board column — or which flat-priced vehicle — priced this booking. */
+  vehicleTypeId?: BookingVehicleId;
+  /** Its name as it read at the time, e.g. "Family Car" or "Motorbike". */
   vehicleTypeName?: string;
   /** The services chosen, in board order. At least one on a new booking. */
   lines?: BookingLine[];
@@ -460,7 +537,7 @@ interface ChangeRequestBase {
  * `categoryId` is a real `ProductCategoryId` or the literal "other", in
  * which case `otherCategory` carries what staff typed. A genuinely new
  * category is a real thing that happens in this yard, and forcing it into
- * one of the five that exist would file the request under a heading the
+ * one of the eight that exist would file the request under a heading the
  * developer then has to undo.
  */
 export interface NewItemRequest extends ChangeRequestBase {

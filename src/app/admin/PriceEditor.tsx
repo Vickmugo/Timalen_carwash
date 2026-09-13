@@ -37,7 +37,7 @@ import { Button } from "@/components/Button";
 import { products } from "@/data/products";
 import { flatPriceGroups, vehicleTypes, washPriceRows } from "@/data/services";
 import { formatKes, formatTimestamp } from "@/lib/format";
-import { flatPrice, productPrice, washPrice } from "@/lib/prices";
+import { flatPrice, productKey, productPrice, washPrice } from "@/lib/prices";
 import { getActingAs, useActingAs } from "@/lib/store";
 import type { PriceBook, PriceCell, VehicleTypeId } from "@/types";
 
@@ -47,23 +47,35 @@ import type { PriceBook, PriceCell, VehicleTypeId } from "@/types";
 
 interface PriceChangeEntry {
   id: string;
+  /** Named on the server from the data files: "Fencing Posts, 7 ft". */
+  item: string;
   oldPriceKes: PriceCell;
   newPriceKes: PriceCell;
   by: string;
   at: string;
 }
 
+type PriceSection = "wash" | "flat" | "product";
+
+/** How the banner names a section the server could not read. */
+const SECTION_NAMES: Record<PriceSection, string> = {
+  wash: "wash board",
+  flat: "other wash work",
+  product: "concrete product",
+};
+
 /** What one cell needs to identify itself to the server. */
 type CellKey =
   | { kind: "wash"; serviceId: string; vehicleTypeId: VehicleTypeId }
   | { kind: "flat"; id: string }
-  | { kind: "product"; id: string };
+  /** `variantId` only for a product sold by height. */
+  | { kind: "product"; id: string; variantId?: string };
 
 /** A stable string per cell, for keying React state about it. */
 function cellId(key: CellKey): string {
-  return key.kind === "wash"
-    ? `wash:${key.serviceId}:${key.vehicleTypeId}`
-    : `${key.kind}:${key.id}`;
+  if (key.kind === "wash") return `wash:${key.serviceId}:${key.vehicleTypeId}`;
+  if (key.kind === "product") return `product:${productKey(key.id, key.variantId)}`;
+  return `flat:${key.id}`;
 }
 
 const EMPTY_BOOK: PriceBook = { wash: {}, flat: {}, product: {} };
@@ -74,7 +86,9 @@ const EMPTY_BOOK: PriceBook = { wash: {}, flat: {}, product: {} };
 
 export function PriceEditor() {
   const [book, setBook] = useState<PriceBook>(EMPTY_BOOK);
-  const [changes, setChanges] = useState<PriceChangeEntry[]>([]);
+  // Null when the log itself could not be read — not the same as empty.
+  const [changes, setChanges] = useState<PriceChangeEntry[] | null>([]);
+  const [unavailable, setUnavailable] = useState<PriceSection[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -95,9 +109,11 @@ export function PriceEditor() {
       if (!response.ok) throw new Error(String(response.status));
       const body = (await response.json()) as {
         priceBook: PriceBook;
-        changes: PriceChangeEntry[];
+        unavailable: PriceSection[];
+        changes: PriceChangeEntry[] | null;
       };
       setBook(body.priceBook);
+      setUnavailable(body.unavailable);
       setChanges(body.changes);
       setLoadError(null);
     } catch {
@@ -135,7 +151,9 @@ export function PriceEditor() {
           kind: key.kind,
           ...(key.kind === "wash"
             ? { serviceId: key.serviceId, vehicleTypeId: key.vehicleTypeId }
-            : { id: key.id }),
+            : key.kind === "product"
+              ? { id: key.id, variantId: key.variantId }
+              : { id: key.id }),
           priceKes,
           by: getActingAs(),
         }),
@@ -160,6 +178,28 @@ export function PriceEditor() {
       {loadError ? (
         <p className="mb-4 rounded-slab border-2 border-fail bg-fail-tint px-3 py-2 text-sm text-slab-800">
           {loadError}
+        </p>
+      ) : null}
+
+      {/*
+        A SECTION THE SERVER COULD NOT READ shows every row as "not listed"
+        below, and so does the public site. Said here in so many words,
+        because otherwise the obvious fix — typing the prices back in — is
+        the wrong one: the figures are still in the database, unread.
+      */}
+      {unavailable.length > 0 ? (
+        <p
+          role="alert"
+          className="mb-4 rounded-slab border-2 border-fail bg-fail-tint px-3 py-2 text-sm text-slab-800"
+        >
+          <strong>
+            Could not read the{" "}
+            {unavailable.map((section) => SECTION_NAMES[section]).join(", ")}{" "}
+            prices from the database.
+          </strong>{" "}
+          Those rows show &ldquo;not listed&rdquo; here and on the public site,
+          but that is not what the database holds — do not re-enter them.
+          Reload in a minute; if it persists, the database needs looking at.
         </p>
       ) : null}
 
@@ -267,22 +307,54 @@ export function PriceEditor() {
         <h3 id="price-products" className="text-base">
           Concrete products
         </h3>
+        {/*
+          This used to read "every one of these is still a placeholder".
+          That stopped being true in the September batch — slab, wall caps,
+          channels, cornices and cabros are the client's own figures now,
+          and every height of fencing posts and spindles after the tiers
+          stage. Saying it anyway would train staff to ignore the line, and
+          the one that IS still a guess is the one worth naming.
+
+          The paragraph that said this screen could not price a height is
+          gone because it can: a product sold by height gets one row per
+          height below, and there is no row for the product as a whole.
+        */}
         <p className="mt-1 text-sm text-slab-600">
-          Every one of these is still a placeholder nobody has confirmed.
-          Correcting them here is the point of this screen.
+          Road kerbs is still a placeholder nobody has confirmed. Correcting
+          it here is the point of this screen.
+        </p>
+        <p className="mt-1.5 text-sm text-slab-600">
+          Fencing posts and spindles are priced per height, one row each.
         </p>
 
         <ul className="mt-3 divide-y-2 divide-slab-100 rounded-slab border-2 border-slab-200 bg-white">
-          {products.map((product) => (
-            <PriceRow
-              key={product.id}
-              label={product.name}
-              hint={product.unitLabel}
-              current={productPrice(book, product.id)}
-              cell={{ kind: "product", id: product.id }}
-              onSave={save}
-            />
-          ))}
+          {products.flatMap((product) =>
+            product.variants
+              ? product.variants.map((variant) => (
+                  <PriceRow
+                    key={productKey(product.id, variant.id)}
+                    label={`${product.name}, ${variant.label}`}
+                    hint={product.unitLabel}
+                    current={productPrice(book, product.id, variant.id)}
+                    cell={{
+                      kind: "product",
+                      id: product.id,
+                      variantId: variant.id,
+                    }}
+                    onSave={save}
+                  />
+                ))
+              : [
+                  <PriceRow
+                    key={product.id}
+                    label={product.name}
+                    hint={product.unitLabel}
+                    current={productPrice(book, product.id)}
+                    cell={{ kind: "product", id: product.id }}
+                    onSave={save}
+                  />,
+                ],
+          )}
         </ul>
       </section>
 
@@ -292,12 +364,16 @@ export function PriceEditor() {
           Recent price changes
         </h3>
         <p className="mt-1 text-sm text-slab-600">
-          The last {changes.length === 0 ? "few" : changes.length} changes.
+          The last {!changes?.length ? "few" : changes.length} changes.
           Names are typed into the &ldquo;Acting as&rdquo; box and are not
           verified.
         </p>
 
-        {changes.length === 0 ? (
+        {changes === null ? (
+          <p className="mt-3 rounded-slab border-2 border-fail bg-fail-tint px-3 py-4 text-sm text-slab-800">
+            Could not load the change log. Prices above are unaffected.
+          </p>
+        ) : changes.length === 0 ? (
           <p className="mt-3 rounded-slab border-2 border-slab-200 bg-slab-50 px-3 py-4 text-sm text-slab-600">
             No price has been changed yet.
           </p>
@@ -305,6 +381,7 @@ export function PriceEditor() {
           <ul className="mt-3 divide-y-2 divide-slab-100 rounded-slab border-2 border-slab-200 bg-white text-sm">
             {changes.map((entry) => (
               <li key={entry.id} className="flex flex-wrap gap-x-3 px-3 py-2">
+                <span className="w-full font-semibold">{entry.item}</span>
                 <span className="font-mono font-bold">
                   {priceText(entry.oldPriceKes)} &rarr;{" "}
                   {priceText(entry.newPriceKes)}

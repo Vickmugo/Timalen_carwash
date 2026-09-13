@@ -4,33 +4,148 @@ import { useState } from "react";
 import Link from "next/link";
 import { Button, ButtonLink } from "@/components/Button";
 import { quoteRules } from "@/data/config";
-import type { Product } from "@/types";
+import type { PriceCell, Product, ProductVariant } from "@/types";
 import { addItem } from "@/lib/cart";
+import { cartLineName } from "@/lib/cart-line";
 import { formatKes } from "@/lib/format";
 
 /**
-  * `priceKes` comes from the page's price book. Null is not accepted here:
-  * a product with no confirmed price is not offered with an add-to-cart
-  * control at all — see the guard in page.tsx — because a basket cannot
-  * hold "price not listed".
-  */
-export function AddToCart({
+ * One size of a product with the price the page was rendered with. Built
+ * on the server by `variantPrices()`; a null price is a height nobody has
+ * priced, which the picker shows and refuses to select.
+ */
+export interface PricedVariant {
+  variant: ProductVariant;
+  priceKes: PriceCell;
+}
+
+/**
+ * THE PRICE, THE HEIGHT PICKER AND THE BASKET CONTROLS, for a product sold
+ * by height. A single-price product skips straight to `AddToCart`; the
+ * page renders its headline price itself, as it always has.
+ *
+ * The headline lives in here rather than on the server page because it
+ * has to change when the height does.
+ *
+ * NO HEIGHT IS PRESELECTED, for the reason BookingFlow gives for not
+ * preselecting a vehicle column: a default is the height somebody buys
+ * without noticing they chose it. Until a height is picked the headline
+ * shows the range, and the button says what is missing.
+ */
+export function VariantAddToCart({
   product,
-  priceKes,
+  variants,
 }: {
   product: Product;
-  priceKes: number;
+  variants: PricedVariant[];
+}) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = variants.find((entry) => entry.variant.id === selectedId);
+  // An unpriced height cannot be clicked, so this is null only before a pick.
+  const choice =
+    selected && selected.priceKes !== null
+      ? { priceKes: selected.priceKes, variant: selected.variant }
+      : null;
+
+  const priced = variants
+    .map((entry) => entry.priceKes)
+    .filter((price): price is number => price !== null);
+  const minKes = Math.min(...priced);
+  const maxKes = Math.max(...priced);
+
+  return (
+    <>
+      <div className="mt-6 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span className="text-3xl font-extrabold" aria-live="polite">
+          {choice
+            ? formatKes(choice.priceKes)
+            : minKes === maxKes
+              ? formatKes(minKes)
+              : `${formatKes(minKes)} – ${maxKes.toLocaleString("en-KE")}`}
+        </span>
+        <span className="text-sm text-slab-500">
+          {product.unitLabel}
+          {choice ? `, ${choice.variant.label}` : ", depending on height"}
+        </span>
+      </div>
+
+      <fieldset className="mt-5">
+        <legend className="text-sm font-bold uppercase tracking-wide text-slab-700">
+          Height
+        </legend>
+        <div className="mt-1.5 flex flex-wrap gap-2">
+          {variants.map(({ variant, priceKes }) => {
+            const active = variant.id === selectedId;
+            const unpriced = priceKes === null;
+            return (
+              <button
+                key={variant.id}
+                type="button"
+                aria-pressed={active}
+                disabled={unpriced}
+                onClick={() => setSelectedId(variant.id)}
+                className={`flex min-h-12 flex-col items-start justify-center rounded-slab border-2 px-4 py-1.5 text-left transition-colors duration-150 ease-plain disabled:cursor-not-allowed disabled:opacity-60 ${
+                  active
+                    ? "border-slab-900 bg-slab-900 text-slab-50"
+                    : "border-slab-200 bg-white text-slab-900 hover:border-slab-500 disabled:hover:border-slab-200"
+                }`}
+              >
+                <span className="text-sm font-bold">{variant.label}</span>
+                <span
+                  className={`text-xs ${active ? "text-slab-300" : "text-slab-500"}`}
+                >
+                  {unpriced ? "Price not listed" : formatKes(priceKes)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </fieldset>
+
+      <AddToCart product={product} choice={choice} />
+    </>
+  );
+}
+
+/**
+ * What is going into the basket: one price, and for a product sold by
+ * height, the height that price belongs to.
+ *
+ * `choice` is null ONLY while a height has not been picked yet. It never
+ * stands for an unpriced product — a product with no confirmed price is not
+ * offered an add-to-cart control at all (see the guard in page.tsx),
+ * because a basket cannot hold "price not listed".
+ */
+export function AddToCart({
+  product,
+  choice,
+}: {
+  product: Product;
+  choice: { priceKes: number; variant?: ProductVariant } | null;
 }) {
   const [quantity, setQuantity] = useState(1);
-  const [added, setAdded] = useState(false);
+  // What was last added, by name, so switching height afterwards cannot
+  // leave "Added" sitting under a height that was not the one added.
+  const [added, setAdded] = useState<string | null>(null);
 
   // Over the threshold this item alone will force the cart into quote mode.
   // Say so here rather than letting the customer discover it at checkout.
+  // Per height: the cart holds one line per height, and the rule is per line.
   const willNeedQuote = quantity > quoteRules.maxUnitsPerLine;
 
+  const quoteHref = `/quote?product=${product.slug}${
+    choice?.variant ? `&variant=${choice.variant.id}` : ""
+  }&quantity=${quantity}`;
+
   function handleAdd() {
-    addItem(product, priceKes, quantity);
-    setAdded(true);
+    if (!choice) return;
+    addItem(product, choice.priceKes, quantity, choice.variant);
+    setAdded(
+      `${quantity} x ${cartLineName({
+        name: product.name,
+        variantLabel: choice.variant?.label,
+      })}`,
+    );
   }
 
   return (
@@ -62,7 +177,7 @@ export function AddToCart({
               onChange={(event) => {
                 const next = Number(event.target.value);
                 setQuantity(Number.isFinite(next) && next > 0 ? next : 1);
-                setAdded(false);
+                setAdded(null);
               }}
               className="w-16 border-y-2 border-slab-300 bg-white text-center text-base font-bold text-slab-900 focus:outline-none"
             />
@@ -80,7 +195,7 @@ export function AddToCart({
         <p className="pb-3 text-sm text-slab-600">
           Subtotal{" "}
           <span className="font-bold text-slab-900">
-            {formatKes(priceKes * quantity)}
+            {choice ? formatKes(choice.priceKes * quantity) : "—"}
           </span>
         </p>
       </div>
@@ -88,22 +203,25 @@ export function AddToCart({
       {willNeedQuote ? (
         <div className="mt-4 rounded-slab border-2 border-hivis bg-hivis-tint p-4">
           <p className="text-sm text-slab-800">
-            Over {quoteRules.maxUnitsPerLine} units, so this goes to a quote
-            rather than checkout. You can still add it to the cart — the cart
-            will hand you over to the quote form.
+            Over {quoteRules.maxUnitsPerLine} units
+            {product.variants ? " of one height" : ""}, so this goes to a
+            quote rather than checkout. You can still add it to the cart — the
+            cart will hand you over to the quote form.
           </p>
-          <ButtonLink
-            href={`/quote?product=${product.slug}&quantity=${quantity}`}
-            size="md"
-            className="mt-3"
-          >
+          <ButtonLink href={quoteHref} size="md" className="mt-3">
             Request a quote now
           </ButtonLink>
         </div>
       ) : null}
 
-      <Button size="lg" fullWidth className="mt-4" onClick={handleAdd}>
-        Add to cart
+      <Button
+        size="lg"
+        fullWidth
+        className="mt-4"
+        onClick={handleAdd}
+        disabled={!choice}
+      >
+        {choice ? "Add to cart" : "Pick a height first"}
       </Button>
 
       {added ? (
@@ -111,7 +229,7 @@ export function AddToCart({
           role="status"
           className="mt-3 flex flex-wrap items-center gap-2 rounded-slab border-2 border-ok/30 bg-ok-tint px-3 py-2 text-sm font-semibold text-ok"
         >
-          Added to your cart.
+          Added {added} to your cart.
           <Link href="/cart" className="underline underline-offset-4">
             View cart
           </Link>

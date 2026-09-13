@@ -74,6 +74,26 @@ interface ImageCarouselProps {
   /** Focal point of the crop, e.g. "object-[50%_30%]". */
   objectPositionClassName?: string;
   /**
+   * How each frame meets the box: "object-cover" to fill and crop,
+   * "object-contain" to letterbox and show the whole image.
+   *
+   * A prop rather than a constant because the two callers genuinely need
+   * different answers. The product galleries are yard photographs where the
+   * subject is central and the edges are gravel, so cropping them to a tidy
+   * ratio costs nothing. The hero now carries printed banners with the
+   * phone numbers baked into the corners, and any crop cuts them off — see
+   * the framing note in src/data/property.ts.
+   *
+   * Written out in full at each call site rather than composed, because
+   * Tailwind scans for literal class strings.
+   *
+   * `objectPositionClassName` is close to meaningless under contain: with
+   * the whole image inside the box there is nothing to choose a focal point
+   * from, only which side the bars fall on. Callers passing contain should
+   * leave the position at its centred default.
+   */
+  objectFitClassName?: string;
+  /**
    * The crossfade. Passed in as a literal class string because Tailwind
    * needs to see `duration-700` written out to generate it.
    */
@@ -96,6 +116,7 @@ export function ImageCarousel({
   controls = "none",
   frameClassName = "aspect-3/2",
   objectPositionClassName = "object-center",
+  objectFitClassName = "object-cover",
   crossfadeClassName = "duration-500 ease-in-out motion-reduce:transition-none",
   overlay,
   preloadFirst = false,
@@ -194,7 +215,7 @@ export function ImageCarousel({
             // Only the visible photo is exposed; the stack underneath is not
             // a pile of images to a screen reader.
             aria-hidden={!current}
-            className={`object-cover ${objectPositionClassName} transition-opacity ${crossfadeClassName} ${
+            className={`${objectFitClassName} ${objectPositionClassName} transition-opacity ${crossfadeClassName} ${
               current ? "opacity-100" : "opacity-0"
             }`}
           />

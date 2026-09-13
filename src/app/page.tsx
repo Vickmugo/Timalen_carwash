@@ -138,7 +138,7 @@ export default async function HomePage() {
                     Browse Concrete Products
                   </span>
                   <span className="mt-0.5 block text-xs text-slab-300 sm:text-sm">
-                    Posts, slabs, spindles, caps and kerbs.
+                    Posts, slabs, spindles, caps, kerbs and cabros.
                   </span>
                 </span>
                 <span
@@ -177,48 +177,58 @@ export default async function HomePage() {
           home page never shows "ask at the yard" in a summary that is
           meant to be scanned in two seconds — /prices carries the full
           board, gaps included, and the link above goes straight to it.
+
+          No such row at all — nothing priced yet, or the board could not be
+          read — gets one plain line instead of a table with a header and no
+          body.
         */}
-        <div className="mt-4 rounded-slab border-2 border-slab-200 bg-white p-3 md:overflow-x-auto md:p-0">
-          <table className="record-table w-full border-collapse md:min-w-[30rem]">
-            <thead className="bg-slab-900">
-              <tr>
-                <th className="px-3 py-2 text-left text-xs font-bold uppercase tracking-wide text-slab-400">
-                  Service
-                </th>
-                {vehicleTypes.map((type) => (
-                  <th
-                    key={type.id}
-                    className="px-3 py-2 text-left text-xs font-bold uppercase tracking-wide whitespace-nowrap text-slab-400"
-                  >
-                    {type.name}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="md:divide-y-2 md:divide-slab-100">
-              {homeRows.map((row) => (
-                <tr key={row.id}>
-                  <th
-                    scope="row"
-                    className="px-3 py-2.5 text-left text-sm font-bold"
-                    data-head=""
-                  >
-                    {row.name}
+        {homeRows.length === 0 ? (
+          <p className="mt-4 rounded-slab border-2 border-slab-200 bg-white px-4 py-3 text-sm text-slab-700">
+            Price not listed — ask at the yard.
+          </p>
+        ) : (
+          <div className="mt-4 rounded-slab border-2 border-slab-200 bg-white p-3 md:overflow-x-auto md:p-0">
+            <table className="record-table w-full border-collapse md:min-w-[30rem]">
+              <thead className="bg-slab-900">
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs font-bold uppercase tracking-wide text-slab-400">
+                    Service
                   </th>
                   {vehicleTypes.map((type) => (
-                    <td
+                    <th
                       key={type.id}
-                      className="px-3 py-2.5 text-sm font-bold"
-                      data-label={type.name}
+                      className="px-3 py-2 text-left text-xs font-bold uppercase tracking-wide whitespace-nowrap text-slab-400"
                     >
-                      {formatKes(washPrice(priceBook, row.id, type.id) as number)}
-                    </td>
+                      {type.name}
+                    </th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="md:divide-y-2 md:divide-slab-100">
+                {homeRows.map((row) => (
+                  <tr key={row.id}>
+                    <th
+                      scope="row"
+                      className="px-3 py-2.5 text-left text-sm font-bold"
+                      data-head=""
+                    >
+                      {row.name}
+                    </th>
+                    {vehicleTypes.map((type) => (
+                      <td
+                        key={type.id}
+                        className="px-3 py-2.5 text-sm font-bold"
+                        data-label={type.name}
+                      >
+                        {formatKes(washPrice(priceBook, row.id, type.id) as number)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       {/* Product summary */}

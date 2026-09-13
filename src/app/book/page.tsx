@@ -85,9 +85,8 @@ export default async function BookPage() {
                 className="font-bold underline underline-offset-4 hover:text-slab-900"
               >
                 See the full price board
-              </Link>{" "}
-              — including carpets, lorries, buses and motorbikes, which are
-              not bookable online.
+              </Link>
+              .
             </p>
           </>
         }

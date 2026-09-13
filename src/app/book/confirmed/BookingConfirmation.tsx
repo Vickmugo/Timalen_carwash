@@ -1,6 +1,7 @@
 import { ButtonLink } from "@/components/Button";
 import { PaymentBadge } from "@/components/Badge";
 import { business } from "@/data/business";
+import { getFlatVehicle } from "@/data/services";
 import { formatKes, formatLongDate } from "@/lib/format";
 import { bookingLines, bookingVehicleTypeName } from "@/lib/booking";
 import { receiptPath } from "@/lib/receipt";
@@ -54,8 +55,10 @@ export function BookingConfirmation({ booking }: { booking: Booking | null }) {
       </div>
 
       <p className="mt-3 text-slab-600">
-        Bring the car to {business.location} at the time below. Keep your
-        reference handy.
+        {/* "the motorbike", not "the car", for a flat-priced vehicle. */}
+        Bring the{" "}
+        {getFlatVehicle(booking.vehicleTypeId ?? "")?.name.toLowerCase() ?? "car"}{" "}
+        to {business.location} at the time below. Keep your reference handy.
       </p>
 
       <div className="mt-6 rounded-slab border-2 border-slab-900 bg-white">

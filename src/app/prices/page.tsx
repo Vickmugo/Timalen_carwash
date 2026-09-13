@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import { ButtonLink } from "@/components/Button";
 import { business, telHref, whatsappHref } from "@/data/business";
@@ -204,6 +205,17 @@ export default async function PricesPage() {
                   </div>
                 ))}
               </dl>
+              {/* The one group that is a request rather than a booking. */}
+              {group.id === "carpets" ? (
+                <p className="border-t-2 border-slab-200 px-4 py-2.5 text-sm">
+                  <Link
+                    href="/book/carpets"
+                    className="font-bold underline underline-offset-4 hover:text-slab-900"
+                  >
+                    Request a drop-off or collection
+                  </Link>
+                </p>
+              ) : null}
             </div>
           ))}
         </div>

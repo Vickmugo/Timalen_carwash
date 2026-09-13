@@ -10,28 +10,31 @@ import {
   productCategories,
   products,
 } from "@/data/products";
-import type { PriceCell, Product, ProductCategoryId } from "@/types";
-import { productPrice } from "@/lib/prices";
+import type { Product, ProductCategoryId } from "@/types";
+import { productPriceRange } from "@/lib/prices";
 import { getPriceBook } from "@/lib/prices-db";
 import { formatKes } from "@/lib/format";
 
 /**
- * Names the five lines the yard actually casts, because those are the words
+ * Names the lines the yard actually casts, because those are the words
  * someone types — "fencing posts", "road kerbs" — not "concrete products".
- * The cabros/air vents/culverts line is left out on purpose: they are not
- * listed on this page yet (see the note at the bottom of the grid), and a
+ *
+ * Cabros, cornices and channels ARE named here now: they have confirmed
+ * prices and cards on this page, so a visitor arriving on that search term
+ * finds what they came for. Air vents and culverts stay out — they are
+ * still not listed (see the note at the bottom of the grid), and a
  * description promising products the page does not show is the kind of
  * result a visitor bounces straight off.
  */
 export const metadata: Metadata = {
   title: "Concrete products",
   description:
-    "Fencing posts, slabs, spindles, column and pillar caps, and road kerbs — cast in our own yard and sold off the stack. Buy standard items online or ask for a bulk quote.",
+    "Fencing posts, slabs, spindles, wall caps, road kerbs, channels, cornices and cabros — cast in our own yard and sold off the stack. Buy standard items online or ask for a bulk quote.",
   alternates: { canonical: "/products" },
   openGraph: {
     title: "Concrete products",
     description:
-      "Fencing posts, slabs, spindles, column caps and road kerbs, cast in our own yard.",
+      "Fencing posts, slabs, spindles, wall caps, road kerbs, channels, cornices and cabros, cast in our own yard.",
     url: "/products",
   },
 };
@@ -45,7 +48,7 @@ function isCategoryId(value: string): value is ProductCategoryId {
  *
  * One flat grid, not a run of per-category sections. Each category holds
  * exactly one entry — the yard sells product LINES, not variants — so
- * sections would mean five headings above five single cards, which is a
+ * sections would mean eight headings above eight single cards, which is a
  * page made mostly of its own scaffolding. The category names still exist
  * as the filter above; picking one narrows the grid and brings its
  * description with it.
@@ -141,22 +144,23 @@ export default async function ProductsPage({
           <ProductCard
             key={product.id}
             product={product}
-            priceKes={productPrice(priceBook, product.id)}
+            price={productPriceRange(priceBook, product)}
           />
         ))}
       </ul>
 
       {/*
-        The wall at the yard advertises more than this — cabros, air vents,
-        culverts, cornices. They are not listed because there is no photo and
-        no price for any of them yet, and a card with an empty image frame
-        next to real photography reads as broken rather than as forthcoming.
-        Said once, in words, at the bottom of the grid. See the note at the
-        top of src/data/products.ts.
+        TWO LINES LEFT, DOWN FROM FOUR. Cabros and cornices moved up into
+        the grid when the client confirmed prices for them; channels went in
+        at the same time. Air vents and culverts are still advertised on the
+        yard wall and on the banner but have neither a price nor a
+        photograph, so there is nothing to put on a card and they stay here
+        in words. See the note at the top of src/data/products.ts for why a
+        confirmed price is what moves a line into the grid.
       */}
       <p className="mt-8 max-w-prose border-t-2 border-slab-200 pt-6 text-sm text-slab-600">
-        The yard also casts cabros, air vents, culverts and cornices. They are
-        not listed here yet.{" "}
+        The yard also casts air vents and culverts. They are not listed here
+        yet.{" "}
         <Link
           href="/quote"
           className="font-semibold underline underline-offset-4 hover:text-slab-900"
@@ -182,10 +186,11 @@ export default async function ProductsPage({
  */
 function ProductCard({
   product,
-  priceKes,
+  price,
 }: {
   product: Product;
-  priceKes: PriceCell;
+  /** Null when nothing about the product is priced. See `productPriceRange`. */
+  price: { minKes: number; maxKes: number } | null;
 }) {
   return (
     <li className="lift relative flex h-full flex-col rounded-slab border-2 border-slab-200 bg-white p-3 hover:border-slab-900">
@@ -218,16 +223,28 @@ function ProductCard({
             <span className="text-sm font-bold uppercase tracking-wide text-hivis-dark">
               Priced by quote
             </span>
-          ) : priceKes === null ? (
+          ) : price === null ? (
             <span className="text-sm font-semibold text-slab-500">
               Price not listed — ask at the yard
             </span>
           ) : (
-            <span className="flex items-baseline gap-1.5">
+            /*
+              A product sold by height shows its range, and says so — one
+              card has no room for a picker, and printing only the cheapest
+              height would read as the price of the product.
+            */
+            <span className="flex flex-wrap items-baseline gap-x-1.5">
               <span className="text-lg font-extrabold">
-                {formatKes(priceKes)}
+                {price.minKes === price.maxKes
+                  ? formatKes(price.minKes)
+                  : `${formatKes(price.minKes)} – ${price.maxKes.toLocaleString("en-KE")}`}
               </span>
-              <span className="text-xs text-slab-500">{product.unitLabel}</span>
+              <span className="text-xs text-slab-500">
+                {product.unitLabel}
+                {product.variants
+                  ? `, ${product.variants.length} heights`
+                  : ""}
+              </span>
             </span>
           )}
         </div>

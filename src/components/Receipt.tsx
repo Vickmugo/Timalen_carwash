@@ -36,6 +36,7 @@
 import { paymentLabel } from "@/components/Badge";
 import { Button, ButtonLink } from "@/components/Button";
 import { business, hasTillNumber, hoursSummary } from "@/data/business";
+import { cartLineKey, cartLineName } from "@/lib/cart-line";
 import { formatKes, formatLongDate, formatTimestamp } from "@/lib/format";
 import { PAYMENTS_ARE_MOCKED } from "@/lib/payment";
 import { bookingLines, bookingVehicleTypeName } from "@/lib/booking";
@@ -449,9 +450,9 @@ function OrderReceipt({ order }: { order: Order }) {
         </thead>
         <tbody>
           {order.lines.map((line) => (
-            <tr key={line.productId} className="border-b border-slab-200">
+            <tr key={cartLineKey(line)} className="border-b border-slab-200">
               <td className="py-1.5 pr-2">
-                <span className="font-semibold">{line.name}</span>
+                <span className="font-semibold">{cartLineName(line)}</span>
                 <span className="block text-xs text-slab-600">
                   {line.unitLabel}
                 </span>

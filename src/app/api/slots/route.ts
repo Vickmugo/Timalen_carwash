@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { bookingConfig } from "@/data/config";
+import { getFlatVehicle, getVehicleType } from "@/data/services";
 import { getBookedIntervals } from "@/lib/bookings-db";
-import { generateSlots, getBookableDates } from "@/lib/slots";
+import { generateSlots, getBookableDates, holdMinutesFor } from "@/lib/slots";
 
 /**
  * =====================================================================
@@ -48,10 +48,26 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  /*
+    WHICH VEHICLE, BECAUSE A LORRY IS A LONGER SLOT. A 90-minute booking
+    cannot start at 17:00, and cannot start at 09:30 if 10:00 is taken, so
+    the grid depends on it. Optional: no `vehicle` means the standard block,
+    which is what this endpoint returned before lorries existed. A vehicle
+    it does not recognise is refused rather than silently given the
+    standard grid, which would offer a lorry times it cannot have.
+  */
+  const vehicle = request.nextUrl.searchParams.get("vehicle");
+  if (vehicle !== null && !getVehicleType(vehicle) && !getFlatVehicle(vehicle)) {
+    return NextResponse.json(
+      { error: "bad_request", detail: "Unknown vehicle type." },
+      { status: 400, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   try {
     const slots = generateSlots(
       date,
-      bookingConfig.placeholderWashDurationMinutes,
+      holdMinutesFor(vehicle ?? ""),
       await getBookedIntervals(date),
     );
     return NextResponse.json(
