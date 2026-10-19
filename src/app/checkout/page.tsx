@@ -125,7 +125,7 @@ export default function CheckoutPage() {
         return;
       } else {
         setSubmitError(
-          response.status === 400 && failure.detail
+          [400, 413, 429].includes(response.status) && failure.detail
             ? failure.detail
             : "We could not place your order. Nothing was saved — please try again.",
         );

@@ -112,10 +112,13 @@ export type InsertPaymentResult =
   | { ok: false; reason: "db_error"; detail: string };
 
 /**
- * Is this (normalised) code already on ANY payment? Asked before a booking
- * is written, so a reused code is turned away without holding a slot.
- * Advisory only — the unique index is the guarantee, and `insertPayment`
- * reports a violation of it as `code_used` too.
+ * Is this (normalised) code already on a LIVE payment? Asked before a
+ * booking is written, so a reused code is turned away without holding a
+ * slot. Rejected claims do not count: once staff reject a claim the code
+ * is free again, matching the partial unique index in
+ * supabase/migrations/20261018100000_rate_limits_and_code_index.sql.
+ * Advisory only — the index is the guarantee, and `insertPayment` reports
+ * a violation of it as `code_used` too.
  */
 export async function isCodeInUse(code: string): Promise<boolean> {
   const db = getSupabaseServiceRoleClient();
@@ -123,6 +126,7 @@ export async function isCodeInUse(code: string): Promise<boolean> {
     .from("payments")
     .select("id")
     .eq("mpesa_code", code)
+    .neq("status", "rejected")
     .limit(1);
   if (error) throw new Error(`isCodeInUse: ${error.message}`);
   return (data?.length ?? 0) > 0;
@@ -391,7 +395,7 @@ export async function voidReceipt(
     .update({
       status: "void",
       voided_at: new Date().toISOString(),
-      voided_by: by.trim() || "unattributed",
+      voided_by: by, // from the staff session
       void_reason: reason.trim(),
     })
     .eq("business_id", BUSINESS_ID)

@@ -32,7 +32,7 @@ import Link from "next/link";
 import { formatKes, formatTimestamp, toDateKey } from "@/lib/format";
 import { channelLabel } from "@/lib/payments";
 import { receiptPath } from "@/lib/receipt";
-import { getActingAs } from "@/lib/store";
+import { csvCell } from "@/lib/csv";
 import { postStaff, type StaffList } from "@/lib/use-staff-list";
 import type { ReceiptRecord } from "@/types";
 
@@ -79,13 +79,21 @@ function integrity(receipts: ReceiptRecord[], series: "W" | "C") {
   };
 }
 
-/** RFC 4180-ish: quote every field, double any quote inside it. */
+/**
+ * Every cell goes through `csvCell` (src/lib/csv.ts): quoted, and with a
+ * leading apostrophe on anything a spreadsheet would run as a formula. The
+ * customer name comes straight from a public form.
+ *
+ * The staff names are labelled self-reported in the header itself, so the
+ * caveat travels with the file.
+ */
 function toCsv(rows: ReceiptRecord[]): string {
   const header = [
     "number", "issued_at", "series", "ref", "customer", "phone", "method",
-    "amount_kes", "mpesa_code", "issued_by", "status", "void_reason",
+    "amount_kes", "mpesa_code", "issued_by (self-reported)", "status", "void_reason",
+    "voided_by (self-reported)",
   ];
-  const quote = (value: string | number | null) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+  const quote = csvCell;
   const lines = rows.map((receipt) =>
     [
       receipt.number,
@@ -100,6 +108,7 @@ function toCsv(rows: ReceiptRecord[]): string {
       receipt.issuedBy,
       receipt.status,
       receipt.voidReason,
+      receipt.voidedBy,
     ]
       .map(quote)
       .join(","),
@@ -168,7 +177,6 @@ export function ReceiptsLedger({
     setBusy(true);
     setMessage(null);
     const result = await postStaff(`/api/receipts/${encodeURIComponent(receipt.number)}/void`, {
-      by: getActingAs(),
       reason: reason.trim(),
     });
     setBusy(false);
@@ -317,7 +325,9 @@ export function ReceiptsLedger({
                 <th className={th}>Customer</th>
                 <th className={th}>Method</th>
                 <th className={th}>Amount</th>
-                <th className={th}>Issued by</th>
+                <th className={th}>
+                  Issued by <span className="font-normal normal-case">(self-reported)</span>
+                </th>
                 <th className={th}>Status</th>
               </tr>
             </thead>
@@ -361,7 +371,7 @@ export function ReceiptsLedger({
                         </span>
                       ) : null}
                     </td>
-                    <td className={td} data-label="Issued by">
+                    <td className={td} data-label="Issued by (self-reported)">
                       {receipt.issuedBy}
                     </td>
                     <td className={td} data-label="Status">
@@ -369,7 +379,7 @@ export function ReceiptsLedger({
                         <span className="text-xs">
                           <span className="font-bold uppercase">Void</span>
                           {receipt.voidReason ? ` — ${receipt.voidReason}` : ""}
-                          {receipt.voidedBy ? ` (${receipt.voidedBy})` : ""}
+                          {receipt.voidedBy ? ` (${receipt.voidedBy}, self-reported)` : ""}
                         </span>
                       ) : voiding === receipt.id ? (
                         <div className="flex flex-col gap-2">

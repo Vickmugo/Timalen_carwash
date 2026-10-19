@@ -66,7 +66,8 @@ import {
 } from "@/components/Badge";
 import { Button } from "@/components/Button";
 import { PageHeader } from "@/components/PageHeader";
-import { adminUsers, UNATTRIBUTED } from "@/data/admin-users";
+import { UNATTRIBUTED } from "@/data/admin-users";
+import { useStaffName } from "./StaffName";
 import { CarpetRequests } from "./CarpetRequests";
 import { PaymentCell } from "./PaymentCell";
 import { CashDue, PaymentsToVerify } from "./PaymentQueues";
@@ -89,7 +90,7 @@ import type {
 } from "@/types";
 import type { QueuedPayment } from "@/lib/payments-db";
 import { isSettled } from "@/lib/payments";
-import { useStaffList } from "@/lib/use-staff-list";
+import { patchStaff, useStaffList } from "@/lib/use-staff-list";
 import {
   NOT_LIVE_BANNER,
   NOT_LIVE_CARD,
@@ -117,14 +118,9 @@ import { cartLineKey, cartLineName } from "@/lib/cart-line";
 import {
   addChangeRequest,
   clearAll,
-  getActingAs,
-  setActingAs,
   updateChangeRequestStatus,
-  updateQuoteStatus,
-  useActingAs,
   useChangeRequests,
   useIsHydrated,
-  useQuotes,
 } from "@/lib/store";
 import {
   patchBookingJob,
@@ -559,14 +555,19 @@ function SignOutButton() {
  * hidden that a person needs in order to avoid a mistake.
  */
 function AboutPanel() {
+  const staffName = useStaffName();
   return (
     <div className="mt-4 rounded-slab border-2 border-slab-300 bg-white">
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-        <p className="max-w-prose text-sm text-slab-600">
-          Signed in with the shared staff password. Bookings, orders, carpet
-          requests, payments and receipts are on the server; quote and change
-          requests are still in this browser.
-        </p>
+        <div className="max-w-prose">
+          <p className="text-sm font-bold text-slab-900">
+            Signed in as {staffName}
+          </p>
+          <p className="mt-0.5 text-xs text-slab-500">
+            Name chosen at sign-in, not verified. It is recorded on every
+            change you make here.
+          </p>
+        </div>
         <SignOutButton />
       </div>
 
@@ -578,114 +579,26 @@ function AboutPanel() {
         <p className="mt-3 max-w-prose text-sm text-slab-700">
           Getting in needs one password, set in{" "}
           <code className="font-mono">ADMIN_PASSWORD</code> and shared by
-          everybody. There are no separate staff logins, so this page knows
-          somebody is staff and not which member of staff. Signing in lasts
-          twelve hours on this device; Sign out ends it now. Changing the
-          password signs out every device at once, and is the only way to do
-          that.
+          everybody. There are no separate staff logins. Signing in lasts
+          twelve hours on this device; Sign out ends it now. Rotating{" "}
+          <code className="font-mono">SESSION_SECRET</code> signs out every
+          device at once, and is the only way to do that.
         </p>
         <p className="mt-2 max-w-prose text-sm text-slab-700">
-          The name under &ldquo;Acting as&rdquo; is typed in, not checked, so
-          the change history below is a courtesy to each other rather than a
-          record that would settle an argument. Before this holds real
+          The name you typed at sign-in is attached to every change by the
+          server, but nobody checks it is yours, so the change history below
+          is a courtesy to each other rather than a record that would settle
+          an argument. Before this holds real
           customer data it needs proper accounts — see the notes in{" "}
           <code className="font-mono">src/proxy.ts</code>.
         </p>
         <p className="mt-2 max-w-prose text-sm text-slab-700">
-          Quote requests and change requests are still stored in this browser
-          only. They will not appear on another device or for a colleague, and
-          clearing site data erases them. Everything else on this page is
-          read from the server.
+          Change requests are still stored in this browser only. They will
+          not appear on another device or for a colleague, and clearing site
+          data erases them. Everything else on this page, quote requests
+          included, is read from the server.
         </p>
       </details>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Acting as                                                           */
-/* ------------------------------------------------------------------ */
-
-/**
- * A NAME TAG AT THE TOP OF THE PAGE. NOT A LOGIN.
- *
- * The login is the password on /login, and it identifies the yard rather
- * than the person. Nothing here is verified either — whoever is at the
- * counter says who they are, and status changes carry that name from then
- * on. The full argument for why that is worth having anyway, and exactly
- * how far it can be trusted, is at the top of src/data/admin-users.ts.
- *
- * It sits at the top rather than beside each control because it is set once
- * at the start of a shift, not per record.
- */
-function ActingAsPanel() {
-  const actingAs = useActingAs();
-
-  // A dropdown needs something to choose between. Shipped as-is there is a
-  // single placeholder name, so a select would be one option that is
-  // already selected — a control that does nothing. Add the real names to
-  // src/data/admin-users.ts and this becomes a dropdown with no other
-  // change anywhere.
-  const asDropdown = adminUsers.length > 1;
-
-  // A name chosen earlier in this session may since have been removed from
-  // the list. Keep it as an option rather than silently reassigning the
-  // change to whoever happens to sort first.
-  const options =
-    actingAs && !adminUsers.includes(actingAs)
-      ? [actingAs, ...adminUsers]
-      : adminUsers;
-
-  const control =
-    "rounded-slab border-2 border-slab-300 bg-white px-3 text-sm font-semibold text-slab-900 focus:border-slab-900 focus:outline-none";
-
-  return (
-    <div className="mt-4 rounded-slab border-2 border-slab-300 bg-white p-4">
-      <label
-        htmlFor="acting-as"
-        className="block text-xs font-bold uppercase tracking-wide text-slab-500"
-      >
-        Acting as
-      </label>
-
-      {asDropdown ? (
-        <select
-          id="acting-as"
-          value={actingAs}
-          onChange={(event) => setActingAs(event.target.value)}
-          className={`mt-1.5 min-h-11 w-full max-w-xs ${control}`}
-        >
-          <option value="">Nobody selected</option>
-          {options.map((name) => (
-            <option key={name} value={name}>
-              {name}
-            </option>
-          ))}
-        </select>
-      ) : (
-        <input
-          id="acting-as"
-          type="text"
-          value={actingAs}
-          onChange={(event) => setActingAs(event.target.value)}
-          placeholder="Your name"
-          autoComplete="off"
-          className={`mt-1.5 min-h-11 w-full max-w-xs ${control}`}
-        />
-      )}
-
-      <p className="mt-2 max-w-prose text-sm text-slab-700">
-        Not a sign-in. Whatever name is here gets attached to any status you
-        change below, so the team can see who did what. Nobody checks it, it
-        clears when this tab closes, and it is only worth as much as a
-        sign-out sheet by the door.
-      </p>
-
-      {actingAs.trim() ? null : (
-        <p className="mt-2 text-sm font-semibold text-slab-700">
-          No name set — changes made now will be recorded as {UNATTRIBUTED}.
-        </p>
-      )}
     </div>
   );
 }
@@ -769,7 +682,8 @@ function StatusSelect<T extends string>({
 
 function whoLabel(by: string): string {
   // "Changed by unattributed" reads like a name. Say what actually happened.
-  return by === UNATTRIBUTED ? "someone who had not set a name" : by;
+  // (Only older rows carry it; every change now has the session's name.)
+  return by === UNATTRIBUTED ? "someone who had not set a name" : `${by} (self-reported)`;
 }
 
 /**
@@ -835,7 +749,24 @@ export default function AdminPage() {
     error: bookingsError,
     refresh: refreshBookings,
   } = useServerBookings();
-  const quotes = useQuotes();
+  /*
+    QUOTE REQUESTS COME FROM THE SERVER now (/api/quote-requests). Before,
+    the /quote form saved only to the customer's own browser, so this list
+    showed requests made on THIS device and nothing from customers.
+  */
+  const quotesList = useStaffList<QuoteRequest>("/api/quote-requests", "requests", "quote requests");
+  const quotes = quotesList.items;
+  const [quoteWriteError, setQuoteWriteError] = useState<string | null>(null);
+
+  async function changeQuoteStatus(ref: string, status: QuoteStatus) {
+    setQuoteWriteError(null);
+    const result = await patchStaff(`/api/quote-requests/${encodeURIComponent(ref)}`, { status });
+    if (!result.ok) {
+      setQuoteWriteError(`Could not update ${ref}. The change was not saved — try again.`);
+      return;
+    }
+    await quotesList.refresh();
+  }
   /*
     ORDERS COME FROM THE DATABASE TOO, as of the payments stage. Orders
     placed before that are still in the browsers that placed them; this
@@ -896,7 +827,7 @@ export default function AdminPage() {
   */
   async function changeBookingPayment(ref: string, status: PaymentStatus) {
     setBookingWriteError(null);
-    const ok = await patchBookingPayment(ref, status, getActingAs());
+    const ok = await patchBookingPayment(ref, status);
     if (!ok) {
       setBookingWriteError(
         `Could not update ${ref}. The change was not saved — try again.`,
@@ -908,7 +839,7 @@ export default function AdminPage() {
 
   async function changeBookingJob(ref: string, status: JobStatus) {
     setBookingWriteError(null);
-    const ok = await patchBookingJob(ref, status, getActingAs());
+    const ok = await patchBookingJob(ref, status);
     if (!ok) {
       setBookingWriteError(
         `Could not update ${ref}. The change was not saved — try again.`,
@@ -1068,7 +999,6 @@ export default function AdminPage() {
       />
 
       <AboutPanel />
-      <ActingAsPanel />
 
       {!loaded ? (
         <p className="mt-8 text-slab-500">Loading records...</p>
@@ -1272,7 +1202,14 @@ export default function AdminPage() {
               ) : null
             }
           >
-            {shownQuotes.length === 0 ? (
+            {quotesList.error || quoteWriteError ? (
+              <p className="m-3 rounded-slab border-2 border-fail bg-fail-tint px-3 py-2 text-sm text-slab-800">
+                {quoteWriteError ?? quotesList.error}
+              </p>
+            ) : null}
+            {quotesList.loading ? (
+              <p className="p-4 text-sm text-slab-500">Loading quote requests...</p>
+            ) : shownQuotes.length === 0 ? (
               <EmptyState filtered={quotesFiltered} onClear={clearAllFilters}>
                 No quote requests yet.{" "}
                 <Link
@@ -1304,6 +1241,7 @@ export default function AdminPage() {
                         key={quote.ref}
                         quote={quote}
                         expanded={openQuote === quote.ref}
+                        onStatus={(status) => void changeQuoteStatus(quote.ref, status)}
                         onToggle={() =>
                           setOpenQuote((current) =>
                             current === quote.ref ? null : quote.ref,
@@ -1448,7 +1386,7 @@ export default function AdminPage() {
               onClick={() => {
                 if (
                   window.confirm(
-                    "Delete the quote requests, change requests and pre-server orders stored in this browser? Bookings, orders, payments and receipts on the server are not affected.",
+                    "Delete the change requests, and any old quote requests and pre-server orders, stored in this browser? Bookings, orders, quote requests, payments and receipts on the server are not affected.",
                   )
                 ) {
                   clearAll();
@@ -1623,10 +1561,13 @@ function QuoteRows({
   quote,
   expanded,
   onToggle,
+  onStatus,
 }: {
   quote: QuoteRequest;
   expanded: boolean;
   onToggle: () => void;
+  /** Saved on the server, attributed to the session's name there. */
+  onStatus: (status: QuoteStatus) => void;
 }) {
   const detailId = `quote-detail-${quote.ref}`;
   return (
@@ -1661,7 +1602,7 @@ function QuoteRows({
               value={quote.status}
               options={QUOTE_STATUSES}
               onChange={(status) =>
-                updateQuoteStatus(quote.ref, status, getActingAs())
+                onStatus(status)
               }
             />
             <StatusLog history={quote.history} />
@@ -1823,7 +1764,7 @@ function OrderRow({ order }: { order: Order }) {
  * =====================================================================
  */
 
-/** Shared input styling, matching the controls in `ActingAsPanel`. */
+/** Shared input styling for the change-request form. */
 const formControl =
   "min-h-11 w-full rounded-slab border-2 border-slab-300 bg-white px-3 text-base font-semibold text-slab-900 focus:border-slab-900 focus:outline-none sm:text-sm";
 
@@ -1942,6 +1883,7 @@ function KindPicker({
  * in a row, not one.
  */
 function ChangeRequestForm() {
+  const staffName = useStaffName();
   const [kind, setKind] = useState<ChangeRequestKind>("new_item");
   const [error, setError] = useState<string | null>(null);
   const [savedRef, setSavedRef] = useState<string | null>(null);
@@ -2008,7 +1950,7 @@ function ChangeRequestForm() {
       ref: makeRef("CR"),
       status: "draft" as const,
       createdAt: new Date().toISOString(),
-      by: getActingAs().trim() || UNATTRIBUTED,
+      by: staffName,
       note: note.trim(),
     };
 
@@ -2280,6 +2222,7 @@ function ChangeRequestForm() {
  * fallback — selectable text on the page.
  */
 function ChangeRequestCard({ request }: { request: ChangeRequest }) {
+  const staffName = useStaffName();
   const text = requestText(request);
 
   return (
@@ -2380,7 +2323,7 @@ function ChangeRequestCard({ request }: { request: ChangeRequest }) {
             value={request.status}
             options={CHANGE_REQUEST_STATUSES}
             onChange={(status) =>
-              updateChangeRequestStatus(request.ref, status, getActingAs())
+              updateChangeRequestStatus(request.ref, status, staffName)
             }
           />
           <StatusLog history={request.history} />

@@ -37,6 +37,7 @@
  * =====================================================================
  */
 
+import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 /** The three variables this module needs. Set them yourself; see README. */

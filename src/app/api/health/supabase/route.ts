@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { SESSION_COOKIE, verifySessionValue } from "@/lib/session";
+import { isStaffRequest } from "@/lib/staff-guard";
 import {
   BUSINESS_ID,
   getSupabaseAnonClient,
@@ -89,51 +89,35 @@ function describeDbError(error: {
           "This is NOT row level security — RLS refuses a read with zero " +
           "rows, not with this error. Apply " +
           "supabase/migrations/20260907120000_grant_service_role.sql."
-        : "Unrecognised database error; the code and hint above are from " +
-          "Postgres itself.";
+        : "Unrecognised database error; the full message is in the server log.";
 
+  // The SQLSTATE and the plain reading only. Postgres's own message and
+  // hint name tables and columns, so they go to the server log, never the
+  // response — even a staff-only response gets screenshotted.
+  console.error(
+    `[api/health/supabase] db error ${error.code ?? "no code"}: ${error.message}${error.hint ? ` (hint: ${error.hint})` : ""}`,
+  );
   return {
     code: error.code ?? null,
-    detail: error.message,
-    dbHint: error.hint ?? null,
     meaning,
   };
 }
 
 export async function GET(request: NextRequest) {
   /*
-    WHO MAY RUN THIS.
+    WHO MAY RUN THIS: a signed-in member of staff, in every environment.
 
-    Open in development, staff-session-gated in production — the same split
-    as the `secure` cookie flag in src/lib/session.ts, and for a similar
-    reason: the safe setting in production is friction nobody needs on
-    localhost, where this is a debugging tool being run every few seconds.
-
-    In production it is gated because an open version of this endpoint
-    hands an anonymous caller two things: an unlimited supply of database
-    writes, and a report of which credentials are configured. Neither is
-    catastrophic. Neither has any business being public either.
-
-    The check is the same one src/proxy.ts makes for /admin, using the same
-    helpers — this route sits outside the proxy's matcher (which covers
-    only /admin), so it does its own.
+    It used to be open in development. An open version hands any caller
+    on the network an unlimited supply of database writes and a report of
+    which credentials are configured, and `next dev` is reachable across
+    the LAN (see allowedDevOrigins in next.config.ts). This route sits
+    outside the proxy's matcher, so it checks for itself.
   */
-  if (process.env.NODE_ENV === "production") {
-    const expected = process.env.ADMIN_PASSWORD;
-    const session = request.cookies.get(SESSION_COOKIE)?.value;
-
-    if (!expected || !verifySessionValue(session, expected)) {
-      return json(
-        {
-          ok: false,
-          error: "not_authorised",
-          detail:
-            "Sign in to the staff area first. This endpoint is open in " +
-            "development and gated in production.",
-        },
-        401,
-      );
-    }
+  if (!isStaffRequest(request)) {
+    return json(
+      { ok: false, error: "not_authorised", detail: "Sign in to the staff area first." },
+      401,
+    );
   }
 
   /*
@@ -274,15 +258,8 @@ export async function GET(request: NextRequest) {
     );
   } catch (error) {
     /* Anything the library throws rather than returns — a bad URL, DNS
-       failure, a TLS problem. `message` only: an error object from a
-       client constructed with credentials can carry them in its details. */
-    return json(
-      {
-        ok: false,
-        error: "unexpected",
-        detail: error instanceof Error ? error.message : String(error),
-      },
-      503,
-    );
+       failure, a TLS problem. Logged, not returned. */
+    console.error("[api/health/supabase] threw:", error instanceof Error ? error.message : error);
+    return json({ ok: false, error: "unexpected", detail: "See the server log." }, 503);
   }
 }

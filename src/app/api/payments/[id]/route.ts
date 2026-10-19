@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { resolvePayment, type ResolveAction } from "@/lib/payments-db";
-import { isStaffRequest } from "@/lib/staff-guard";
+import { getStaffSession } from "@/lib/staff-guard";
 
 /**
  * =====================================================================
@@ -37,12 +37,13 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!isStaffRequest(request)) return json({ error: "not_authorised" }, 401);
+  const staff = getStaffSession(request);
+  if (!staff) return json({ error: "not_authorised" }, 401);
 
   const { id } = await params;
   if (!UUID.test(id)) return json({ error: "not_found" }, 404);
 
-  let body: { action?: unknown; by?: unknown; reason?: unknown; amountReceivedKes?: unknown };
+  let body: { action?: unknown; reason?: unknown; amountReceivedKes?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -53,7 +54,8 @@ export async function POST(
   if (!ACTIONS.includes(action)) {
     return json({ error: "bad_request", detail: "Unknown action." }, 400);
   }
-  const by = typeof body.by === "string" ? body.by.slice(0, 100) : "";
+  // From the signed session, never the body. Self-reported at sign-in.
+  const by = staff.name;
   const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 500) : "";
   if (action === "reject" && !reason) {
     return json({ error: "bad_request", detail: "Say why it is being rejected." }, 400);

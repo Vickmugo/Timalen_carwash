@@ -3,21 +3,26 @@
 import { useSearchParams } from "next/navigation";
 import { ButtonLink } from "@/components/Button";
 import { business } from "@/data/business";
-import { useIsHydrated, useQuotes } from "@/lib/store";
+import { isRef } from "@/lib/format";
 
+/**
+ * "We have it, we will call you." Shows the reference from the URL and
+ * nothing else: the request itself is on the server, and there is
+ * deliberately no public lookup of a quote request by ref, so this page
+ * neither fetches it nor shows the customer's details back.
+ *
+ * No price is promised here. Bulk and custom work is priced on the call.
+ */
 export function QuoteSubmitted() {
-  const ref = useSearchParams().get("ref");
-  const hydrated = useIsHydrated();
-  const quote = useQuotes().find((entry) => entry.ref === ref);
+  const ref = useSearchParams().get("ref") ?? "";
 
-  if (!hydrated) return <p className="text-slab-500">Loading...</p>;
-
-  if (!quote) {
+  if (!isRef(ref, "QT")) {
     return (
       <div className="rounded-slab border-2 border-slab-200 bg-white p-6">
         <h1 className="text-2xl">Request not found</h1>
         <p className="mt-2 text-slab-600">
-          We could not find a quote request with that reference on this device.
+          That link does not carry a quote reference. If you sent a request,
+          call the yard on {business.phone} and we can look it up.
         </p>
         <ButtonLink href="/quote" className="mt-5">
           Start a new request
@@ -47,44 +52,23 @@ export function QuoteSubmitted() {
       </div>
 
       <p className="mt-3 text-slab-600">
-        Someone from the yard will call {quote.phone} with a price. Bulk and
-        custom jobs are quoted after we confirm the load and the distance.
+        It has reached the yard. Someone will call you on the number you gave
+        with a price. Bulk and custom jobs are priced on that call, once we
+        have confirmed what you need — nothing is charged now.
       </p>
 
       <div className="mt-6 rounded-slab border-2 border-slab-900 bg-white">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-slab-900 bg-slab-900 px-4 py-3 text-slab-50">
+        <div className="flex flex-wrap items-center justify-between gap-2 bg-slab-900 px-4 py-3 text-slab-50">
           <span className="text-xs font-bold uppercase tracking-[0.18em] text-slab-400">
             Reference
           </span>
-          <span className="font-mono text-lg font-bold text-hivis">
-            {quote.ref}
-          </span>
+          <span className="font-mono text-lg font-bold text-hivis">{ref}</span>
         </div>
-
-        <dl className="divide-y-2 divide-slab-100">
-          {[
-            ["What you need", quote.item],
-            ["Quantity", quote.quantity],
-            ["Collection", quote.deliveryLocation],
-            ["Name", quote.customerName],
-            ["Phone", quote.phone],
-            ...(quote.notes ? [["Notes", quote.notes]] : []),
-          ].map(([label, value]) => (
-            <div key={label} className="px-4 py-3">
-              <dt className="text-sm font-bold uppercase tracking-wide text-slab-500">
-                {label}
-              </dt>
-              <dd className="mt-1 whitespace-pre-line text-sm font-semibold">
-                {value}
-              </dd>
-            </div>
-          ))}
-        </dl>
       </div>
 
-      <p className="mt-4 rounded-slab border-2 border-hivis bg-hivis-tint px-3 py-2 text-sm text-slab-800">
-        Demo only. Nothing has been sent to {business.name} and no payment was
-        taken.
+      <p className="mt-4 text-sm text-slab-600">
+        Keep the reference in case you call us first. Collection is from the
+        yard at {business.location}.
       </p>
 
       <div className="mt-6 flex flex-wrap gap-3">

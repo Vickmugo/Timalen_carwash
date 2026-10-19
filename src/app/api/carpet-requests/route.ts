@@ -15,6 +15,8 @@ import {
 import { readPriceBook } from "@/lib/prices-db";
 import { createQuoteRequest, listQuoteRequests } from "@/lib/quote-requests-db";
 import { isStaffRequest } from "@/lib/staff-guard";
+import { cleanCustomerName, cleanText, readJsonBody } from "@/lib/request-body";
+import { LIMITS, rateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { isValidKenyanPhone } from "@/lib/validate";
 import { CODE_ALREADY_USED, parsePaymentChoice } from "@/lib/payments";
 import { insertPayment, isCodeInUse } from "@/lib/payments-db";
@@ -53,12 +55,7 @@ function json(body: unknown, status: number): NextResponse {
   return response;
 }
 
-/** Longest free text accepted in any one field. A public form's bound. */
-const MAX_TEXT = 500;
 
-function asText(value: unknown): string {
-  return typeof value === "string" ? value.trim().slice(0, MAX_TEXT) : "";
-}
 
 /* ------------------------------------------------------------------ */
 /* GET — the staff list                                                */
@@ -80,18 +77,18 @@ export async function GET(request: NextRequest) {
 /* ------------------------------------------------------------------ */
 
 export async function POST(request: NextRequest) {
-  let body: {
+  const limited = await rateLimit(request, LIMITS.carpetCreate);
+  if (!limited.allowed) return tooManyRequests(limited);
+
+  const parsed = await readJsonBody<{
     items?: unknown;
     customerName?: unknown;
     phone?: unknown;
     notes?: unknown;
     payment?: unknown;
-  };
-  try {
-    body = (await request.json()) as typeof body;
-  } catch {
-    return json({ error: "bad_request", detail: "Body is not JSON." }, 400);
-  }
+  } | null>(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body ?? {};
 
   /*
     WHAT IS COMING. Each id must be a size on the board's carpet group, and
@@ -130,9 +127,9 @@ export async function POST(request: NextRequest) {
   picks.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
 
   /* ---- who ---- */
-  const customerName = asText(body.customerName);
-  const phone = asText(body.phone);
-  const notes = asText(body.notes);
+  const customerName = cleanCustomerName(body.customerName);
+  const phone = cleanText(body.phone);
+  const notes = cleanText(body.notes);
 
   if (!customerName) {
     return json({ error: "bad_request", detail: "Name is required." }, 400);

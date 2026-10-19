@@ -1,40 +1,40 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { canonicalStaffName } from "@/data/staff-names";
+import { LIMITS, rateLimit } from "@/lib/rate-limit";
 import {
   SESSION_COOKIE,
   createSessionValue,
+  normaliseStaffName,
   passwordMatches,
   safeReturnPath,
   sessionCookieOptions,
+  staffAuthConfig,
 } from "@/lib/session";
 
 /**
  * =====================================================================
- * POST /api/login — check the shared password, mint the session cookie.
+ * POST /api/login — check the shared password and the first name, mint
+ * the session cookie.
  * ---------------------------------------------------------------------
- * The only place ADMIN_PASSWORD is compared against something a visitor
- * typed. src/proxy.ts checks the resulting COOKIE and never sees the
- * password itself.
+ * A plain form post (the /login page has no client JavaScript), answered
+ * with `303 See Other` so the browser GETs the destination rather than
+ * re-posting. Never cached.
  *
- * A route handler taking a plain form post, not a Server Action, because
- * the form on /login has no client JavaScript behind it: a browser can post
- * to this and follow the redirect with the JS bundle still in flight, or
- * disabled outright. It is also the shape the task called for.
+ * ORDER MATTERS:
+ *   1. Too many recent failures from this IP?  -> 429, nothing else checked.
+ *   2. Password wrong?  -> "wrong", counted as a failure. The name is not
+ *      looked at, so the response is byte-for-byte the same whatever name
+ *      was sent and the staff list cannot be probed without the password.
+ *   3. Name unusable or not on the staff list?  -> refused, no cookie.
+ *   4. Cookie set with the canonical name.
  *
- * ALWAYS REDIRECTS, never renders. Right password or wrong, the answer is
- * `303 See Other` to a normal page. 303 specifically, not Next's default
- * 307: a 307 preserves the method, so the browser would POST again at the
- * destination. 303 tells it to GET, which is what turns a form submission
- * into a page you can then reload or bookmark without re-posting.
- *
- * WHAT IS DELIBERATELY MISSING, same list as everywhere else in this
- * feature: no accounts, no username, no signup, no password reset, and NO
- * RATE LIMITING — nothing here counts or slows repeated wrong guesses. One
- * shared secret guarding a demo. See src/lib/session.ts.
+ * Only failures are counted (5 per 15 minutes per IP). There is no global
+ * limit: that would let anyone lock the owner out by spamming bad
+ * passwords. The long password is the real defence.
  * =====================================================================
  */
 
-/** `303 See Other` + never cached. Both matter on every path out of here. */
 function seeOther(url: URL): NextResponse {
   const response = NextResponse.redirect(url, { status: 303 });
   response.headers.set("Cache-Control", "no-store");
@@ -42,26 +42,35 @@ function seeOther(url: URL): NextResponse {
 }
 
 export async function POST(request: NextRequest) {
-  const expected = process.env.ADMIN_PASSWORD;
+  const config = staffAuthConfig();
 
   const form = await request.formData();
   const supplied = form.get("password");
-  // Re-validated even though /login already sanitised it into the hidden
-  // field: a form post is just an HTTP request, and anybody can send one
-  // with any `next` they like. See `safeReturnPath` for what it rejects.
   const next = safeReturnPath(String(form.get("next") ?? ""));
 
   const back = new URL("/login", request.url);
   back.searchParams.set("next", next);
 
-  if (!expected) {
-    // Nothing to check against. /login renders the "not set up" notice for
-    // this case, and the proxy refuses /admin outright, so there is no path
-    // where an unset password quietly opens the door.
+  if (!config.ok) {
     console.error(
-      "[api/login] Sign-in attempted while ADMIN_PASSWORD is not set.",
+      `[api/login] Sign-in attempted while ${config.missing.join(" and ")} not set.`,
     );
     return seeOther(back);
+  }
+
+  const gate = await rateLimit(request, LIMITS.loginFailures, 0);
+  if (!gate.allowed) {
+    return new NextResponse(
+      "Too many sign-in attempts from this network. Wait a few minutes and try again.",
+      {
+        status: 429,
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "no-store",
+          "Retry-After": String(gate.retryAfterSeconds),
+        },
+      },
+    );
   }
 
   if (typeof supplied !== "string" || supplied.length === 0) {
@@ -69,15 +78,27 @@ export async function POST(request: NextRequest) {
     return seeOther(back);
   }
 
-  if (!passwordMatches(supplied, expected)) {
+  if (!passwordMatches(supplied, config.password)) {
+    await rateLimit(request, LIMITS.loginFailures, 1);
     back.searchParams.set("error", "wrong");
+    return seeOther(back);
+  }
+
+  const cleaned = normaliseStaffName(form.get("name"));
+  if (!cleaned) {
+    back.searchParams.set("error", "name");
+    return seeOther(back);
+  }
+  const name = canonicalStaffName(cleaned);
+  if (!name) {
+    back.searchParams.set("error", "unlisted");
     return seeOther(back);
   }
 
   const response = seeOther(new URL(next, request.url));
   response.cookies.set(
     SESSION_COOKIE,
-    createSessionValue(expected),
+    createSessionValue(name, config.secret),
     sessionCookieOptions(),
   );
   return response;

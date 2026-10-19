@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { listRecentPriceChanges, readPriceBook, setPrice } from "@/lib/prices-db";
 import type { PriceKind } from "@/lib/prices-db";
-import { isStaffRequest } from "@/lib/staff-guard";
+import { getStaffSession, isStaffRequest } from "@/lib/staff-guard";
 import { getVehicleType, getWashPriceRow } from "@/data/services";
 import { flatPriceGroups } from "@/data/services";
 import { products } from "@/data/products";
@@ -110,7 +110,8 @@ function knownId(
 const KINDS: PriceKind[] = ["wash", "flat", "product"];
 
 export async function PATCH(request: NextRequest) {
-  if (!isStaffRequest(request)) return json({ error: "not_authorised" }, 401);
+  const staff = getStaffSession(request);
+  if (!staff) return json({ error: "not_authorised" }, 401);
 
   let body: {
     kind?: unknown;
@@ -119,7 +120,6 @@ export async function PATCH(request: NextRequest) {
     id?: unknown;
     variantId?: unknown;
     priceKes?: unknown;
-    by?: unknown;
   };
   try {
     body = (await request.json()) as typeof body;
@@ -174,8 +174,9 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
-  // Self-reported "Acting as" name. Proves nothing; see admin-users.ts.
-  const by = typeof body.by === "string" ? body.by : "";
+  // From the signed session; any name in the body is ignored. Still
+  // self-reported at sign-in — see src/lib/session.ts.
+  const by = staff.name;
 
   try {
     const result = await setPrice(

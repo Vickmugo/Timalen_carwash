@@ -10,6 +10,8 @@ import { productPrice } from "@/lib/prices";
 import { readPriceBook } from "@/lib/prices-db";
 import { cartSubtotal, evaluateCart } from "@/lib/quote";
 import { isStaffRequest } from "@/lib/staff-guard";
+import { cleanCustomerName, cleanText, readJsonBody } from "@/lib/request-body";
+import { LIMITS, rateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { isValidKenyanPhone } from "@/lib/validate";
 import type { CartLine } from "@/types";
 
@@ -42,14 +44,10 @@ function json(body: unknown, status: number): NextResponse {
   return response;
 }
 
-const MAX_TEXT = 500;
 /** A bound on a public form; the bulk rule routes anything near it to a quote anyway. */
 const MAX_LINES = 30;
 const MAX_QUANTITY = 10_000;
 
-function asText(value: unknown): string {
-  return typeof value === "string" ? value.trim().slice(0, MAX_TEXT) : "";
-}
 
 /* ------------------------------------------------------------------ */
 /* GET — the staff list                                                */
@@ -70,18 +68,18 @@ export async function GET(request: NextRequest) {
 /* ------------------------------------------------------------------ */
 
 export async function POST(request: NextRequest) {
-  let body: {
+  const limited = await rateLimit(request, LIMITS.orderCreate);
+  if (!limited.allowed) return tooManyRequests(limited);
+
+  const parsed = await readJsonBody<{
     lines?: unknown;
     customerName?: unknown;
     phone?: unknown;
     notes?: unknown;
     payment?: unknown;
-  };
-  try {
-    body = (await request.json()) as typeof body;
-  } catch {
-    return json({ error: "bad_request", detail: "Body is not JSON." }, 400);
-  }
+  } | null>(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body ?? {};
 
   const requested = Array.isArray(body.lines) ? body.lines.slice(0, MAX_LINES + 1) : [];
   if (requested.length === 0) {
@@ -174,9 +172,9 @@ export async function POST(request: NextRequest) {
   const subtotalKes = cartSubtotal(lines);
 
   /* ---- who ---- */
-  const customerName = asText(body.customerName);
-  const phone = asText(body.phone);
-  const notes = asText(body.notes);
+  const customerName = cleanCustomerName(body.customerName);
+  const phone = cleanText(body.phone);
+  const notes = cleanText(body.notes);
   if (!customerName) {
     return json({ error: "bad_request", detail: "Name is required." }, 400);
   }

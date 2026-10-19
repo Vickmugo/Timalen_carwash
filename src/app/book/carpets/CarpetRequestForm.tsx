@@ -141,7 +141,7 @@ export function CarpetRequestForm({ priceBook }: { priceBook: PriceBook }) {
         }));
       } else {
         setSubmitError(
-          response.status === 400 && failure.detail
+          [400, 413, 429].includes(response.status) && failure.detail
             ? failure.detail
             : "We could not send your request. Nothing was saved — please try again.",
         );

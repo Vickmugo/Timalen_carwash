@@ -6,7 +6,10 @@ import {
   updateBookingJobStatus,
   updateBookingPayment,
 } from "@/lib/bookings-db";
-import { isStaffRequest } from "@/lib/staff-guard";
+import { getStaffSession } from "@/lib/staff-guard";
+import { isRef } from "@/lib/format";
+import { publicBooking } from "@/lib/public-view";
+import { LIMITS, rateLimit, tooManyRequests } from "@/lib/rate-limit";
 import type { JobStatus, PaymentStatus } from "@/types";
 
 /**
@@ -53,16 +56,29 @@ function json(body: unknown, status: number): NextResponse {
 /* GET                                                                 */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Staff with a session get the full record. Everyone else gets the minimal
+ * view (src/lib/public-view.ts) and counts against the lookup limit, which
+ * is checked before the ref is so that a flood of guesses is throttled
+ * whether or not the guesses are well-formed.
+ */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ ref: string }> },
 ) {
   const { ref } = await params;
+  const staff = getStaffSession(request);
+
+  if (!staff) {
+    const limited = await rateLimit(request, LIMITS.refLookup);
+    if (!limited.allowed) return tooManyRequests(limited);
+  }
+  if (!isRef(ref, "WB")) return json({ error: "not_found" }, 404);
 
   try {
     const booking = await getBookingByRef(ref);
     if (!booking) return json({ error: "not_found" }, 404);
-    return json({ booking }, 200);
+    return json({ booking: staff ? booking : publicBooking(booking) }, 200);
   } catch (error) {
     console.error("[api/bookings/[ref]] GET failed:", error);
     return json({ error: "read_failed" }, 503);
@@ -83,13 +99,17 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ ref: string }> },
 ) {
-  if (!isStaffRequest(request)) {
+  const staff = getStaffSession(request);
+  if (!staff) {
     return json({ error: "not_authorised" }, 401);
   }
+  // The name chosen at sign-in, from the signed session. Any name in the
+  // body is ignored. Still self-reported — see src/lib/session.ts.
+  const by = staff.name;
 
   const { ref } = await params;
 
-  let body: { paymentStatus?: unknown; jobStatus?: unknown; by?: unknown };
+  let body: { paymentStatus?: unknown; jobStatus?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -102,7 +122,6 @@ export async function PATCH(
     if (!JOB_STATUSES.includes(jobStatus)) {
       return json({ error: "bad_request", detail: "Unknown job status." }, 400);
     }
-    const by = typeof body.by === "string" ? body.by : "";
     try {
       const result = await updateBookingJobStatus(ref, jobStatus, by);
       if (result.ok) return json({ booking: result.booking }, 200);
@@ -123,16 +142,6 @@ export async function PATCH(
     );
   }
 
-  /*
-    The "Acting as" name, carried from the staff view.
-
-    Still self-reported and still unverified — the session cookie above
-    proves somebody knew the shared password, not which person is typing.
-    It is a name tag on a change, which is all it has ever been in this
-    app. See src/data/admin-users.ts. `bookings-db` substitutes
-    UNATTRIBUTED when it arrives blank.
-  */
-  const by = typeof body.by === "string" ? body.by : "";
 
   try {
     const result = await updateBookingPayment(ref, paymentStatus, by);

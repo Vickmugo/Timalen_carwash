@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { NotFound } from "@/components/Receipt";
 import { CARPET_REF_PREFIX } from "@/lib/carpet-request";
+import { isRef } from "@/lib/format";
 import { getQuoteRequestByRef } from "@/lib/quote-requests-db";
 import { ReceiptFor } from "../../ReceiptFor";
 
@@ -26,7 +27,7 @@ export default async function CarpetReceiptPage({
   params: Promise<{ ref: string }>;
 }) {
   const { ref } = await params;
-  const request = ref.startsWith(`${CARPET_REF_PREFIX}-`)
+  const request = isRef(ref, CARPET_REF_PREFIX)
     ? await getQuoteRequestByRef(ref)
     : null;
 

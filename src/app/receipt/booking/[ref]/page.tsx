@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { NotFound } from "@/components/Receipt";
 import { getBookingByRef } from "@/lib/bookings-db";
+import { isRef } from "@/lib/format";
 import { ReceiptFor } from "../../ReceiptFor";
 
 /**
@@ -29,7 +30,7 @@ export default async function BookingReceiptPage({
   params: Promise<{ ref: string }>;
 }) {
   const { ref } = await params;
-  const booking = await getBookingByRef(ref);
+  const booking = isRef(ref, "WB") ? await getBookingByRef(ref) : null;
 
   if (!booking) {
     return <NotFound reference={ref} backHref="/book" backLabel="Book a wash" />;

@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { getBookingByRef } from "@/lib/bookings-db";
+import { isRef } from "@/lib/format";
+import { publicBooking } from "@/lib/public-view";
 import { BookingConfirmation } from "./BookingConfirmation";
 
 /**
@@ -39,7 +41,8 @@ export default async function BookingConfirmedPage({
   searchParams: Promise<{ ref?: string }>;
 }) {
   const { ref } = await searchParams;
-  const booking = ref ? await getBookingByRef(ref) : null;
+  const found = ref && isRef(ref, "WB") ? await getBookingByRef(ref) : null;
+  const booking = found ? publicBooking(found) : null;
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-10">

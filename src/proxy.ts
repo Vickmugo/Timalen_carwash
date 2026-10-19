@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { SESSION_COOKIE, verifySessionValue } from "@/lib/session";
+import { SESSION_COOKIE, staffAuthConfig, verifySessionValue } from "@/lib/session";
 
 /**
  * =====================================================================
@@ -10,7 +10,7 @@ import { SESSION_COOKIE, verifySessionValue } from "@/lib/session";
  * `middleware.ts` was deprecated in Next.js 16 and renamed to `proxy.ts`;
  * the exported function is `proxy` rather than `middleware`. Same feature,
  * same matcher, same request/response objects. This project is on Next
- * 16.3.3, so it uses the current name. See
+ * 16.4.2, so it uses the current name. See
  * node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md
  *
  * WHAT CHANGED, AND WHAT DELIBERATELY DID NOT
@@ -33,14 +33,14 @@ import { SESSION_COOKIE, verifySessionValue } from "@/lib/session";
  * being readable by anyone who has or guesses the URL. It is NOT production
  * authentication:
  *
- *   - one shared secret, so there is no "who did that" and no audit trail —
- *     every member of staff is the same principal
- *   - no accounts and no signup. The "Acting as" name in the staff view is
- *     a self-reported name tag, not an identity (src/data/admin-users.ts)
- *   - no rate limiting, so the password is only as good as its length
+ *   - one shared password, so every member of staff is the same principal
+ *   - the name on the session is typed at sign-in and self-reported, not an
+ *     identity (src/lib/session.ts)
+ *   - failed sign-ins are rate-limited per IP (src/app/api/login/route.ts),
+ *     but the password is still the real defence
  *   - no roles: whoever gets in can do everything, including "clear all"
- *   - the only way to revoke every outstanding session is to change
- *     ADMIN_PASSWORD, which invalidates all of them at once
+ *   - the only way to revoke every outstanding session is to rotate
+ *     SESSION_SECRET, which invalidates all of them at once
  *
  * What sessions DID buy over Basic Auth: an expiry (twelve hours), a real
  * sign-out, a login page that can say why it is asking, and a secret that
@@ -54,12 +54,12 @@ import { SESSION_COOKIE, verifySessionValue } from "@/lib/session";
  * work is at the top of src/app/admin/page.tsx.
  *
  * SETTING THE PASSWORD
- * Set ADMIN_PASSWORD in the environment. Locally that means .env.local; in
+ * Set ADMIN_PASSWORD and SESSION_SECRET in the environment. Locally that means .env.local; in
  * production it is whatever the host calls environment variables. No .env
  * file is created or edited by this code, and the value is never read from
  * anywhere but process.env.
  *
- * IF IT IS NOT SET, THE ROUTE IS CLOSED, NOT OPEN. An unset variable is a
+ * IF EITHER IS NOT SET, THE ROUTE IS CLOSED, NOT OPEN. An unset variable is a
  * deployment mistake, and the failure mode for a deployment mistake on the
  * page that shows customer phone numbers has to be a locked door. Failing
  * open here would recreate the exact hole this file was written to close.
@@ -69,18 +69,18 @@ import { SESSION_COOKIE, verifySessionValue } from "@/lib/session";
 const MISCONFIGURED_MESSAGE = [
   "The staff area is not available.",
   "",
-  "ADMIN_PASSWORD is not set in this environment, so there is no password to",
-  "check against. Access is refused rather than granted: this page shows",
-  "customer names and phone numbers.",
+  "ADMIN_PASSWORD or SESSION_SECRET is not set in this environment (or",
+  "SESSION_SECRET is shorter than 32 characters). Access is refused rather",
+  "than granted: this page shows customer names and phone numbers.",
   "",
-  "To fix: set ADMIN_PASSWORD in the environment and restart. See the notes",
-  "at the top of src/proxy.ts.",
+  "To fix: set both in the environment and restart. See the notes at the",
+  "top of src/lib/session.ts.",
 ].join("\n");
 
 export function proxy(request: NextRequest) {
-  const expected = process.env.ADMIN_PASSWORD;
+  const config = staffAuthConfig();
 
-  if (!expected) {
+  if (!config.ok) {
     // Server-side breadcrumb; the visitor gets the message above, which says
     // the same thing without pretending the page is merely missing.
     //
@@ -89,7 +89,7 @@ export function proxy(request: NextRequest) {
     // login page carries the same explanation for anyone who arrives there
     // by another route.
     console.error(
-      "[proxy] /admin blocked: ADMIN_PASSWORD is not set. Refusing access.",
+      `[proxy] /admin blocked: ${config.missing.join(" and ")} not set. Refusing access.`,
     );
     return new NextResponse(MISCONFIGURED_MESSAGE, {
       status: 500,
@@ -102,7 +102,7 @@ export function proxy(request: NextRequest) {
 
   const session = request.cookies.get(SESSION_COOKIE)?.value;
 
-  if (!verifySessionValue(session, expected)) {
+  if (!verifySessionValue(session, config.secret)) {
     /*
       Where they were trying to go, carried across so the login lands them
       back on it rather than dumping everyone on /admin. Built from

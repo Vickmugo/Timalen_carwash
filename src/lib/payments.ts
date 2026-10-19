@@ -167,7 +167,9 @@ export function isSettled(status: PaymentRecordStatus): boolean {
  * is settled but somehow has no receipt is NOT counted: the receipt is
  * what the customer is owed.
  */
-export function hasOfficialReceipt(payment: PaymentSummary | undefined): boolean {
+export function hasOfficialReceipt(
+  payment: Pick<PaymentSummary, "status" | "receipt"> | undefined,
+): boolean {
   return Boolean(payment && isSettled(payment.status) && payment.receipt);
 }
 

@@ -81,6 +81,24 @@ export function useStaffList<T>(url: string, key: string, what: string): StaffLi
  * worked; never throws, so a dropped connection is an ordinary failure
  * the caller shows rather than an unhandled rejection.
  */
+/** PATCH with a JSON body; same result shape as `postStaff`. */
+export async function patchStaff(
+  url: string,
+  body: unknown,
+): Promise<{ ok: boolean; status: number; data: Record<string, unknown> }> {
+  try {
+    const response = await fetch(url, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    return { ok: response.ok, status: response.status, data };
+  } catch {
+    return { ok: false, status: 0, data: {} };
+  }
+}
+
 export async function postStaff(
   url: string,
   body: unknown,

@@ -176,7 +176,7 @@ export function PendingReceipt({
   const message = !payment
     ? "This record was made before payments were recorded online, so it has no official receipt. Ask at the yard."
     : payment.status === "claimed"
-      ? `Payment pending verification. We check your M-Pesa code${payment.mpesaCode ? ` (${payment.mpesaCode})` : ""} against our statement, and your receipt is issued once it is confirmed.`
+      ? "Payment pending verification. We check your M-Pesa payment against our statement, and your receipt is issued once it is confirmed."
       : payment.status === "rejected"
         ? "We could not match your M-Pesa payment. The yard will call you to sort it out."
         : payment.status === "cash_due"

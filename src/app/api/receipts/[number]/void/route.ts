@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { voidReceipt } from "@/lib/payments-db";
-import { isStaffRequest } from "@/lib/staff-guard";
+import { getStaffSession } from "@/lib/staff-guard";
 
 /**
  * /api/receipts/[number]/void — POST { by, reason }. STAFF ONLY.
@@ -27,12 +27,13 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ number: string }> },
 ) {
-  if (!isStaffRequest(request)) return json({ error: "not_authorised" }, 401);
+  const staff = getStaffSession(request);
+  if (!staff) return json({ error: "not_authorised" }, 401);
 
   const { number } = await params;
   if (!RECEIPT_NUMBER.test(number)) return json({ error: "not_found" }, 404);
 
-  let body: { by?: unknown; reason?: unknown };
+  let body: { reason?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -42,7 +43,8 @@ export async function POST(
   if (!reason) {
     return json({ error: "bad_request", detail: "Say why the receipt is being voided." }, 400);
   }
-  const by = typeof body.by === "string" ? body.by.slice(0, 100) : "";
+  // From the signed session, never the body. Self-reported at sign-in.
+  const by = staff.name;
 
   try {
     const result = await voidReceipt(number, by, reason);

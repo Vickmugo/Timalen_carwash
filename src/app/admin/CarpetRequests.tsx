@@ -21,7 +21,8 @@
 
 import { useEffect, useState } from "react";
 import { formatTimestamp } from "@/lib/format";
-import type { PaymentSummary } from "@/types";
+import { patchStaff } from "@/lib/use-staff-list";
+import type { PaymentSummary, QuoteStatus, StatusChange } from "@/types";
 import { PaymentCell } from "./PaymentCell";
 
 interface CarpetRequest {
@@ -32,10 +33,14 @@ interface CarpetRequest {
   quantity: string;
   deliveryLocation: string;
   notes: string;
-  status: string;
+  status: QuoteStatus;
   createdAt: string;
   payment?: PaymentSummary;
+  /** Newest first. Names are the ones typed at sign-in: self-reported. */
+  history?: StatusChange[];
 }
+
+const STATUSES: QuoteStatus[] = ["new", "contacted", "quoted", "closed"];
 
 const th =
   "whitespace-nowrap px-3 py-2 text-left text-xs font-bold uppercase tracking-wide text-slab-400";
@@ -44,6 +49,19 @@ const td = "px-3 py-2.5 align-top text-sm";
 export function CarpetRequests({ refreshKey = 0 }: { refreshKey?: number }) {
   const [requests, setRequests] = useState<CarpetRequest[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [writeError, setWriteError] = useState<string | null>(null);
+  // Bumped after a status change so the list reloads with the new history.
+  const [reload, setReload] = useState(0);
+
+  async function changeStatus(ref: string, status: QuoteStatus) {
+    setWriteError(null);
+    const result = await patchStaff(`/api/quote-requests/${encodeURIComponent(ref)}`, { status });
+    if (!result.ok) {
+      setWriteError(`Could not update ${ref}. The change was not saved — try again.`);
+      return;
+    }
+    setReload((value) => value + 1);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -66,7 +84,7 @@ export function CarpetRequests({ refreshKey = 0 }: { refreshKey?: number }) {
       cancelled = true;
     };
     // Re-read when the page says a payment moved.
-  }, [refreshKey]);
+  }, [refreshKey, reload]);
 
   if (error) {
     return (
@@ -88,6 +106,11 @@ export function CarpetRequests({ refreshKey = 0 }: { refreshKey?: number }) {
 
   return (
     <div className="p-3 md:overflow-x-auto md:p-0">
+      {writeError ? (
+        <p className="mb-3 rounded-slab border-2 border-fail bg-fail-tint px-3 py-2 text-sm text-slab-800">
+          {writeError}
+        </p>
+      ) : null}
       <table className="record-table w-full border-collapse md:min-w-[46rem]">
         <thead className="bg-slab-900">
           <tr>
@@ -97,6 +120,7 @@ export function CarpetRequests({ refreshKey = 0 }: { refreshKey?: number }) {
             <th className={th}>Wants</th>
             <th className={th}>Hand-over</th>
             <th className={th}>Payment</th>
+            <th className={th}>Status</th>
           </tr>
         </thead>
         <tbody className="md:divide-y-2 md:divide-slab-100">
@@ -135,6 +159,29 @@ export function CarpetRequests({ refreshKey = 0 }: { refreshKey?: number }) {
                 ) : (
                   <span className="text-xs text-slab-500">No payment record</span>
                 )}
+              </td>
+              <td className={td} data-label="Status">
+                <label className="sr-only" htmlFor={`cp-status-${request.ref}`}>
+                  Change status for carpet request {request.ref}
+                </label>
+                <select
+                  id={`cp-status-${request.ref}`}
+                  value={request.status}
+                  onChange={(event) => void changeStatus(request.ref, event.target.value as QuoteStatus)}
+                  className="min-h-9 rounded-slab border-2 border-slab-300 bg-white px-1.5 py-1 text-xs font-semibold focus:border-slab-900 focus:outline-none"
+                >
+                  {STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+                {request.history?.[0] ? (
+                  <span className="mt-1 block text-xs text-slab-500">
+                    Changed by {request.history[0].by} (self-reported),{" "}
+                    {formatTimestamp(request.history[0].at)}
+                  </span>
+                ) : null}
               </td>
             </tr>
           ))}

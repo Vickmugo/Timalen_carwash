@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { NotFound } from "@/components/Receipt";
 import { getOrderByRef } from "@/lib/orders-db";
+import { isRef } from "@/lib/format";
 import { ReceiptFor } from "../../ReceiptFor";
 
 /**
@@ -26,7 +27,7 @@ export default async function OrderReceiptPage({
   params: Promise<{ ref: string }>;
 }) {
   const { ref } = await params;
-  const order = await getOrderByRef(ref);
+  const order = isRef(ref, "OR") ? await getOrderByRef(ref) : null;
 
   if (!order) {
     return <NotFound reference={ref} backHref="/products" backLabel="Browse products" />;

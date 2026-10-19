@@ -25,7 +25,6 @@
 
 import { BUSINESS_ID, getSupabaseServiceRoleClient } from "@/lib/supabase";
 import { productKey, washKey } from "@/lib/prices";
-import { UNATTRIBUTED } from "@/data/admin-users";
 import { getProductById } from "@/data/products";
 import { flatPriceGroups, getVehicleType, getWashPriceRow } from "@/data/services";
 import type { PriceBook, PriceCell, VehicleTypeId } from "@/types";
@@ -293,9 +292,8 @@ export async function setPrice(
     [fk]: rowId,
     old_price_kes: oldPriceKes,
     new_price_kes: newPriceKes,
-    // Trimmed because the name comes from a free-text field; a stray space
-    // would otherwise store " " and read as an anonymous change.
-    changed_by: by.trim() || UNATTRIBUTED,
+    // From the staff session (src/lib/staff-guard.ts), never a request body.
+    changed_by: by,
   });
 
   if (logged.error) {

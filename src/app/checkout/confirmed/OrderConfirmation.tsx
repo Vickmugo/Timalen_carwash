@@ -4,7 +4,7 @@ import { business } from "@/data/business";
 import { cartLineKey, cartLineName } from "@/lib/cart-line";
 import { formatKes } from "@/lib/format";
 import { receiptPath } from "@/lib/receipt";
-import type { Order } from "@/types";
+import type { PublicOrder } from "@/lib/public-view";
 
 /**
  * PRESENTATION ONLY, like the booking confirmation. The order is fetched
@@ -16,7 +16,11 @@ import type { Order } from "@/types";
  * database and lands on "not found". Those records are still in the
  * browser that placed them; nothing deletes them.
  */
-export function OrderConfirmation({ order }: { order: Order | null }) {
+/**
+ * Renders the MINIMAL view (src/lib/public-view.ts): open to anyone with
+ * the ref, so a first name and masked phone, and no notes.
+ */
+export function OrderConfirmation({ order }: { order: PublicOrder | null }) {
   if (!order) {
     return (
       <div className="rounded-slab border-2 border-slab-200 bg-white p-6">
@@ -54,7 +58,7 @@ export function OrderConfirmation({ order }: { order: Order | null }) {
 
       <p className="mt-3 text-slab-600">
         Collect from the yard at {business.location}. The yard will call{" "}
-        {order.phone} when it is ready. Made to order items are cast after that
+        {order.phoneMasked} when it is ready. Made to order items are cast after that
         call.
       </p>
 
@@ -87,10 +91,9 @@ export function OrderConfirmation({ order }: { order: Order | null }) {
 
         <dl className="divide-y-2 divide-slab-100 border-t-2 border-slab-100">
           {[
-            ["Name", order.customerName],
-            ["Phone", order.phone],
-            ["Collection", order.deliveryLocation],
-            ...(order.notes ? [["Notes", order.notes]] : []),
+            ["Name", order.firstName],
+            ["Phone", order.phoneMasked],
+            ["Collection", order.collection],
           ].map(([label, value]) => (
             <div
               key={label}

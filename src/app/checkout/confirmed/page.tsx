@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { getOrderByRef } from "@/lib/orders-db";
+import { isRef } from "@/lib/format";
+import { publicOrder } from "@/lib/public-view";
 import { OrderConfirmation } from "./OrderConfirmation";
 
 /**
@@ -26,7 +28,8 @@ export default async function OrderConfirmedPage({
 }) {
   const { ref } = await searchParams;
   const reference = typeof ref === "string" ? ref : "";
-  const order = reference ? await getOrderByRef(reference) : null;
+  const found = isRef(reference, "OR") ? await getOrderByRef(reference) : null;
+  const order = found ? publicOrder(found) : null;
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-10">

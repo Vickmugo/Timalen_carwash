@@ -3,11 +3,13 @@ import type { NextRequest } from "next/server";
 import { getFlatVehicle, getVehicleType, washPriceRows } from "@/data/services";
 import { readPriceBook } from "@/lib/prices-db";
 import { flatVehicleLines, subsumption, toLines, withoutCovered } from "@/lib/booking";
-import { createBooking, listBookings } from "@/lib/bookings-db";
+import { countUpcomingBookingsForPhone, createBooking, listBookings } from "@/lib/bookings-db";
 import type { NewBookingInput } from "@/lib/bookings-db";
 import { getBookedIntervals } from "@/lib/bookings-db";
 import { generateSlots, getBookableDates, holdMinutesFor } from "@/lib/slots";
 import { isStaffRequest } from "@/lib/staff-guard";
+import { cleanCustomerName, cleanText, readJsonBody } from "@/lib/request-body";
+import { LIMITS, rateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { isValidKenyanPhone } from "@/lib/validate";
 import { CODE_ALREADY_USED, parsePaymentChoice } from "@/lib/payments";
 import { isCodeInUse } from "@/lib/payments-db";
@@ -100,17 +102,20 @@ interface BookingRequestBody {
   payment?: unknown;
 }
 
+/** Upcoming (booked or in progress) bookings one phone number may hold. */
+const MAX_UPCOMING_PER_PHONE = 3;
+
 function asTrimmedString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
 export async function POST(request: NextRequest) {
-  let body: BookingRequestBody;
-  try {
-    body = (await request.json()) as BookingRequestBody;
-  } catch {
-    return json({ error: "bad_request", detail: "Body is not JSON." }, 400);
-  }
+  const limited = await rateLimit(request, LIMITS.bookingCreate);
+  if (!limited.allowed) return tooManyRequests(limited);
+
+  const parsed = await readJsonBody<BookingRequestBody>(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body ?? {};
 
   /* ---- the vehicle: a grid column, or a flat-priced vehicle ---- */
   const vehicleTypeId = asTrimmedString(body.vehicleTypeId);
@@ -194,10 +199,12 @@ export async function POST(request: NextRequest) {
   const durationMinutes = holdMinutesFor(pricedAs.id);
 
   /* ---- the customer's details ---- */
-  const customerName = asTrimmedString(body.customerName);
-  const phone = asTrimmedString(body.phone);
-  const vehicle = asTrimmedString(body.vehicle);
-  const notes = asTrimmedString(body.notes);
+  // Capped at 500 characters each, and the name loses any leading
+  // formula characters — see src/lib/request-body.ts.
+  const customerName = cleanCustomerName(body.customerName);
+  const phone = cleanText(body.phone);
+  const vehicle = cleanText(body.vehicle);
+  const notes = cleanText(body.notes);
 
   if (!customerName || !vehicle) {
     return json(
@@ -218,6 +225,28 @@ export async function POST(request: NextRequest) {
     return json({ error: "bad_request", detail: parsedPayment.detail }, 400);
   }
   const payment = parsedPayment.choice;
+
+  /* ---- at most MAX_UPCOMING_PER_PHONE upcoming bookings per number ----
+     One bay, so every booking holds a real slot whether or not anyone
+     turns up. The per-IP limit only stops floods (many customers share a
+     carrier's IP); this cap is what stops one number filling the diary.
+     Matched on the canonical number, so "+254 712…" and "0712…" are the
+     same phone. */
+  try {
+    const upcoming = await countUpcomingBookingsForPhone(phone, getBookableDates()[0]);
+    if (upcoming >= MAX_UPCOMING_PER_PHONE) {
+      return json(
+        {
+          error: "phone_limit",
+          detail: `This number already has ${MAX_UPCOMING_PER_PHONE} upcoming bookings; call us to add more.`,
+        },
+        409,
+      );
+    }
+  } catch (error) {
+    console.error("[api/bookings] phone cap check failed:", error);
+    return json({ error: "read_failed" }, 503);
+  }
 
   /* ---- the slot, checked against the real diary ----
 

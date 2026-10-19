@@ -3,9 +3,8 @@ import { PaymentStatusNotice } from "@/components/PaymentStatusNotice";
 import { business } from "@/data/business";
 import { getFlatVehicle } from "@/data/services";
 import { formatKes, formatLongDate } from "@/lib/format";
-import { bookingLines, bookingVehicleTypeName } from "@/lib/booking";
 import { receiptPath } from "@/lib/receipt";
-import type { Booking } from "@/types";
+import type { PublicBooking } from "@/lib/public-view";
 
 /**
  * PRESENTATION ONLY. The booking is fetched by the server component in
@@ -18,7 +17,12 @@ import type { Booking } from "@/types";
  * browser. The record now comes from the database, so the page renders
  * complete on the first paint and works on any device holding the link.
  */
-export function BookingConfirmation({ booking }: { booking: Booking | null }) {
+/**
+ * Renders the MINIMAL view (src/lib/public-view.ts): this page is open to
+ * anyone with the ref, so it shows a first name and a masked phone, and no
+ * vehicle plate or notes.
+ */
+export function BookingConfirmation({ booking }: { booking: PublicBooking | null }) {
   if (!booking) {
     return (
       <div className="rounded-slab border-2 border-slab-200 bg-white p-6">
@@ -79,7 +83,7 @@ export function BookingConfirmation({ booking }: { booking: Booking | null }) {
           keep working for them. See src/lib/booking.ts.
         */}
         <ul className="divide-y-2 divide-slab-100 border-b-2 border-slab-100">
-          {bookingLines(booking).map((line) => (
+          {booking.lines.map((line) => (
             <li
               key={line.serviceId}
               className="flex flex-wrap justify-between gap-2 px-4 py-2.5"
@@ -99,15 +103,13 @@ export function BookingConfirmation({ booking }: { booking: Booking | null }) {
               booking — the old flow never asked — and the row is dropped
               rather than guessing a column that was never quoted.
             */
-            ...(bookingVehicleTypeName(booking)
-              ? [["Priced as", bookingVehicleTypeName(booking) as string]]
+            ...(booking.vehicleTypeName
+              ? [["Priced as", booking.vehicleTypeName]]
               : []),
             ["Date", formatLongDate(booking.date)],
             ["Time", `${booking.startTime} - ${booking.endTime}`],
-            ["Vehicle", booking.vehicle],
-            ["Name", booking.customerName],
-            ["Phone", booking.phone],
-            ...(booking.notes ? [["Notes", booking.notes]] : []),
+            ["Name", booking.firstName],
+            ["Phone", booking.phoneMasked],
           ].map(([label, value]) => (
             <div
               key={label}

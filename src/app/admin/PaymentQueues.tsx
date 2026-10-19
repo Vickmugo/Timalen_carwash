@@ -25,7 +25,6 @@ import { useState } from "react";
 import { formatKes, formatTimestamp } from "@/lib/format";
 import { channelLabel } from "@/lib/payments";
 import type { QueuedPayment } from "@/lib/payments-db";
-import { getActingAs } from "@/lib/store";
 import { postStaff, type StaffList } from "@/lib/use-staff-list";
 
 const th =
@@ -49,13 +48,20 @@ function RefCell({ payment }: { payment: QueuedPayment }) {
   );
 }
 
-function CustomerCell({ payment }: { payment: QueuedPayment }) {
+/**
+ * `prominent` is for the verify queue, where the phone is evidence: the
+ * statement shows the payer's name and part of their number, and that has
+ * to be matched against THIS booking before a receipt is issued.
+ */
+function CustomerCell({ payment, prominent = false }: { payment: QueuedPayment; prominent?: boolean }) {
   return (
     <td className={td} data-label="Customer">
       <span className="font-semibold">{payment.customerName}</span>
       <a
         href={`tel:${payment.phone.replace(/\s/g, "")}`}
-        className="mt-0.5 block text-xs underline underline-offset-4 hover:text-slab-600"
+        className={`mt-0.5 block underline underline-offset-4 hover:text-slab-600 ${
+          prominent ? "font-mono text-base font-bold text-slab-900" : "text-xs"
+        }`}
       >
         {payment.phone}
       </a>
@@ -109,7 +115,6 @@ export function PaymentsToVerify({
     setMessage(null);
     const result = await postStaff(`/api/payments/${payment.id}`, {
       action,
-      by: getActingAs(),
       ...(action === "reject" ? { reason: reason.trim() } : {}),
     });
     setBusy(null);
@@ -134,7 +139,9 @@ export function PaymentsToVerify({
   return (
     <div>
       <p className="mb-3 rounded-slab border-2 border-hivis bg-hivis-tint px-3 py-2 text-sm font-semibold text-slab-800">
-        Check the code and amount against the till/paybill statement or SMS before verifying.
+        Match the code, the amount AND the payer&rsquo;s name or visible phone digits on the
+        statement to this booking&rsquo;s phone before verifying. A code alone can be copied
+        from someone else&rsquo;s SMS.
       </p>
       {message ? <Message {...message} /> : null}
       {list.error ? <Message text={list.error} tone="fail" /> : null}
@@ -161,7 +168,7 @@ export function PaymentsToVerify({
               {list.items.map((payment) => (
                 <tr key={payment.id}>
                   <RefCell payment={payment} />
-                  <CustomerCell payment={payment} />
+                  <CustomerCell payment={payment} prominent />
                   <td className={`${td} md:whitespace-nowrap`} data-label="Expected">
                     <span className="font-bold">{formatKes(payment.amountKes)}</span>
                     <span className="mt-0.5 block text-xs text-slab-500">
@@ -289,7 +296,6 @@ export function CashDue({
     setMessage(null);
     const result = await postStaff(`/api/payments/${payment.id}`, {
       action: "cash_received",
-      by: getActingAs(),
       amountReceivedKes: amount,
     });
     setBusy(null);

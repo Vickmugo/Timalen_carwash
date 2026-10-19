@@ -4,13 +4,10 @@ import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/Button";
 import { TextAreaField, TextField } from "@/components/Field";
-import { COLLECT_FROM_YARD } from "@/data/config";
 import { getProduct } from "@/data/products";
-import type { QuoteRequest } from "@/types";
 import { clearCart, useCart } from "@/lib/cart";
 import { cartLineKey, cartLineName } from "@/lib/cart-line";
-import { formatKes, makeRef } from "@/lib/format";
-import { addQuote } from "@/lib/store";
+import { formatKes } from "@/lib/format";
 import { compactErrors, phoneError, requiredText } from "@/lib/validate";
 
 /**
@@ -83,6 +80,7 @@ export function QuoteForm() {
   const [edits, setEdits] = useState<Partial<FormValues>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const form = useMemo<FormValues>(
     () => ({ ...defaults, ...edits }),
@@ -99,7 +97,7 @@ export function QuoteForm() {
     });
   }
 
-  function submit(event: React.FormEvent) {
+  async function submit(event: React.FormEvent) {
     event.preventDefault();
 
     const found = compactErrors({
@@ -112,25 +110,54 @@ export function QuoteForm() {
     if (Object.keys(found).length > 0) return;
 
     setSubmitting(true);
+    setSubmitError(null);
 
-    const quote: QuoteRequest = {
-      ref: makeRef("QT"),
-      customerName: form.customerName.trim(),
-      phone: form.phone.trim(),
-      item: form.item.trim(),
-      quantity: form.quantity.trim(),
-      // Nothing is delivered; see COLLECT_FROM_YARD in src/data/config.ts.
-      deliveryLocation: COLLECT_FROM_YARD,
-      notes: form.notes.trim(),
-      status: "new",
-      createdAt: new Date().toISOString(),
-      lines: fromCart ? lines : [],
-    };
+    /*
+      Sent to the yard (/api/quote-requests). It used to be saved only in
+      this browser, which meant bulk requests never reached anyone. The
+      server validates everything again and prices nothing for the
+      customer; cart lines go along so staff can see what was in it.
+    */
+    let response: Response | null = null;
+    try {
+      response = await fetch("/api/quote-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerName: form.customerName.trim(),
+          phone: form.phone.trim(),
+          item: form.item.trim(),
+          quantity: form.quantity.trim(),
+          notes: form.notes.trim(),
+          lines: fromCart
+            ? lines.map((line) => ({
+                productId: line.productId,
+                ...(line.variantId ? { variantId: line.variantId } : {}),
+                quantity: line.quantity,
+              }))
+            : [],
+        }),
+      });
+    } catch {
+      response = null;
+    }
 
-    addQuote(quote);
-    // The cart has been converted into a quote request, so empty it.
+    if (!response || !response.ok) {
+      const failure = response
+        ? ((await response.json().catch(() => ({}))) as { detail?: string })
+        : {};
+      setSubmitError(
+        response && [400, 413, 429].includes(response.status) && failure.detail
+          ? failure.detail
+          : "We could not send your request. Nothing was saved — please try again.",
+      );
+      setSubmitting(false);
+      return;
+    }
+
+    const { ref } = (await response.json()) as { ref: string };
     if (fromCart) clearCart();
-    router.push(`/quote/submitted?ref=${quote.ref}`);
+    router.push(`/quote/submitted?ref=${encodeURIComponent(ref)}`);
   }
 
   return (
@@ -222,9 +249,15 @@ export function QuoteForm() {
       </div>
 
       <p className="mt-6 rounded-slab border-2 border-slab-200 bg-white px-3 py-2 text-sm text-slab-600">
-        Demo only. This request is saved in this browser for the admin view and
-        is not sent anywhere.
+        This goes to the yard. Someone will call you to confirm the price —
+        nothing is charged now. Collection from the yard only.
       </p>
+
+      {submitError ? (
+        <p role="alert" className="mt-3 rounded-slab border-2 border-alert bg-alert-tint px-3 py-2 text-sm font-semibold text-slab-800">
+          {submitError}
+        </p>
+      ) : null}
 
       <Button
         type="submit"

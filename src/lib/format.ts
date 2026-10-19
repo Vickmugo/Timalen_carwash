@@ -73,12 +73,39 @@ export function formatDuration(minutes: number): string {
   return rest === 0 ? hourPart : `${hourPart} ${rest} min`;
 }
 
-/** Short reference like "WB-4K9T2X". Demo-only, not collision-proof. */
+/**
+ * 32 characters with no 0/O or 1/I, so a ref read down a phone line cannot
+ * be misheard into another one.
+ */
+const REF_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+/** New refs are this long; refs issued before were 6 and stay valid. */
+const REF_LENGTH = 8;
+
+/**
+ * A ref like "WB-4K9T2XQ7".
+ *
+ * Eight characters from a 32-letter alphabet is 40 bits, up from 30 at
+ * six. The randomness is the platform CSPRNG (`crypto.getRandomValues`,
+ * present in Node and in browsers — this file runs in both), not
+ * Math.random, whose output can be predicted from earlier values. 256 is a
+ * multiple of 32, so `byte & 31` picks every letter with equal odds.
+ *
+ * Collisions are still possible in principle; the database's unique index
+ * on `ref` catches one and the caller retries.
+ */
 export function makeRef(prefix: string): string {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = new Uint8Array(REF_LENGTH);
+  globalThis.crypto.getRandomValues(bytes);
   let body = "";
-  for (let i = 0; i < 6; i += 1) {
-    body += alphabet[Math.floor(Math.random() * alphabet.length)];
-  }
+  for (const byte of bytes) body += REF_ALPHABET[byte & 31];
   return `${prefix}-${body}`;
+}
+
+/** Two-letter prefix, then 6 (older) or 8 (current) alphabet characters. */
+const REF_PATTERN = /^[A-Z]{2}-[A-HJ-NP-Z2-9]{6}(?:[A-HJ-NP-Z2-9]{2})?$/;
+
+/** True for any ref this app has ever issued, old length or new. */
+export function isRef(value: string, prefix?: string): boolean {
+  return REF_PATTERN.test(value) && (!prefix || value.startsWith(`${prefix}-`));
 }

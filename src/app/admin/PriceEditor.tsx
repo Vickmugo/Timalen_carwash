@@ -13,10 +13,10 @@
  * what it means. Anybody holding the shared staff password can reprice the
  * whole board. There is no approval step and no undo button — the only
  * safety net is the log at the bottom of this screen, which records what a
- * figure was before it moved and which name was in the "Acting as" box at
- * the time. That name is self-reported and proves nothing (see
- * src/data/admin-users.ts), so the log tells you what happened, not who
- * did it.
+ * figure was before it moved and the name the editor typed at sign-in.
+ * The server stamps that name from the session, but it is self-reported
+ * (see src/lib/session.ts), so the log tells you what happened, not
+ * provably who did it.
  *
  * THE TWO-STEP PICKER IS BORROWED, DELIBERATELY. Pick the vehicle column,
  * then edit that column's eleven services. It is the same shape as the
@@ -38,7 +38,6 @@ import { products } from "@/data/products";
 import { flatPriceGroups, vehicleTypes, washPriceRows } from "@/data/services";
 import { formatKes, formatTimestamp } from "@/lib/format";
 import { flatPrice, productKey, productPrice, washPrice } from "@/lib/prices";
-import { getActingAs, useActingAs } from "@/lib/store";
 import type { PriceBook, PriceCell, VehicleTypeId } from "@/types";
 
 /* ------------------------------------------------------------------ */
@@ -94,10 +93,6 @@ export function PriceEditor() {
 
   // Which vehicle column is being edited. Null until chosen; see header.
   const [column, setColumn] = useState<VehicleTypeId | null>(null);
-
-  // Reads the name tag so a save can be attributed. Subscribed rather than
-  // read once, so switching "Acting as" mid-session is picked up.
-  useActingAs();
 
   const load = useCallback(async () => {
     try {
@@ -155,7 +150,6 @@ export function PriceEditor() {
               ? { id: key.id, variantId: key.variantId }
               : { id: key.id }),
           priceKes,
-          by: getActingAs(),
         }),
       }).catch(() => null);
 
@@ -365,7 +359,7 @@ export function PriceEditor() {
         </h3>
         <p className="mt-1 text-sm text-slab-600">
           The last {!changes?.length ? "few" : changes.length} changes.
-          Names are typed into the &ldquo;Acting as&rdquo; box and are not
+          Names are the ones typed at sign-in: self-reported, not
           verified.
         </p>
 
@@ -386,7 +380,9 @@ export function PriceEditor() {
                   {priceText(entry.oldPriceKes)} &rarr;{" "}
                   {priceText(entry.newPriceKes)}
                 </span>
-                <span className="text-slab-600">{entry.by}</span>
+                <span className="text-slab-600">
+                  {entry.by} <span className="text-slab-500">(self-reported)</span>
+                </span>
                 <span className="text-slab-500">
                   {formatTimestamp(entry.at)}
                 </span>

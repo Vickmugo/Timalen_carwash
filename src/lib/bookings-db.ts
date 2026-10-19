@@ -48,7 +48,7 @@
 
 import { BUSINESS_ID, getSupabaseServiceRoleClient } from "@/lib/supabase";
 import { makeRef } from "@/lib/format";
-import { UNATTRIBUTED } from "@/data/admin-users";
+import { canonicalKenyanPhone } from "@/lib/validate";
 import {
   PAYMENT_EMBED,
   insertPayment,
@@ -634,9 +634,8 @@ export async function updateBookingPayment(
   const history = await db.from("status_changes").insert({
     booking_id: updated.data.id as string,
     to_status: paymentStatus,
-    // Trimmed because the name comes from a free-text field; a stray space
-    // would otherwise store " " and read as an anonymous change.
-    changed_by: by.trim() || UNATTRIBUTED,
+    // From the staff session (src/lib/staff-guard.ts), never a request body.
+    changed_by: by,
   });
 
   if (history.error) {
@@ -646,6 +645,44 @@ export async function updateBookingPayment(
   const booking = await getBookingByRef(ref);
   if (!booking) return { ok: false, reason: "not_found" };
   return { ok: true, booking };
+}
+
+/**
+ * UPCOMING BOOKINGS ALREADY HELD BY ONE PHONE NUMBER — the cap against slot
+ * hoarding (one bay, so every unverified booking takes a real slot).
+ *
+ * "Upcoming" is any booking from `fromDate` on that is still booked or in
+ * progress; cancelled, done and no-show ones do not count. Cash and M-Pesa
+ * alike.
+ *
+ * Phones are stored exactly as typed, so the comparison is done here on
+ * the canonical form (`canonicalKenyanPhone`) rather than with a SQL
+ * equality that would miss "+254 712…" against "0712…". The set read is
+ * small — one bay, a fourteen-day window — so reading the phone column
+ * for it is cheap.
+ *
+ * Advisory, like the slot check: two requests racing for the same number
+ * at the same instant can both pass. Good enough for its job.
+ */
+export async function countUpcomingBookingsForPhone(
+  phone: string,
+  fromDate: string,
+): Promise<number> {
+  const wanted = canonicalKenyanPhone(phone);
+  if (!wanted) return 0;
+
+  const db = getSupabaseServiceRoleClient();
+  const { data, error } = await db
+    .from("bookings")
+    .select("phone")
+    .eq("business_id", BUSINESS_ID)
+    .gte("booking_date", fromDate)
+    .in("job_status", ["booked", "in_progress"]);
+
+  if (error) throw new Error(`countUpcomingBookingsForPhone: ${error.message}`);
+  return (data ?? []).filter(
+    (row) => canonicalKenyanPhone(String(row.phone)) === wanted,
+  ).length;
 }
 
 export const JOB_STATUSES: JobStatus[] = [
@@ -695,7 +732,8 @@ export async function updateBookingJobStatus(
   const history = await db.from("status_changes").insert({
     booking_id: updated.data.id as string,
     to_status: jobStatus,
-    changed_by: by.trim() || UNATTRIBUTED,
+    // From the staff session (src/lib/staff-guard.ts), never a request body.
+    changed_by: by,
   });
   if (history.error) {
     return { ok: false, reason: "db_error", detail: history.error.message };

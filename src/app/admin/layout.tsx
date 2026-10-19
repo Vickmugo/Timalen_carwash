@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+import { getStaffSessionFromCookies } from "@/lib/staff-guard";
+import { StaffNameProvider } from "./StaffName";
 
 /**
- * METADATA CARRIER — see the note in src/app/cart/layout.tsx.
+ * METADATA CARRIER — see the note in src/app/cart/layout.tsx — and the
+ * one place the staff view learns the name on the session.
  *
- * `noindex, nofollow` is the third lock on this route, after the session
- * check in src/proxy.ts and the Disallow line in app/robots.ts. The proxy
- * is the one that actually protects it; a crawler that ignores robots.txt
- * gets a redirect to /login rather than a page. This tag only matters for
- * the case where somebody is signed in and a page of customer names is
- * then rendered inside something that indexes what it is shown.
+ * `noindex, nofollow` is a backstop after the session check in src/proxy.ts
+ * (the real gate) and the Disallow line in app/robots.ts.
  */
 export const metadata: Metadata = {
   title: "Staff view",
@@ -16,8 +16,14 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function AdminLayout({
+export default async function AdminLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  return children;
+  // The proxy has already refused anyone without a valid session; this is
+  // the same check again because the name is needed here, and a layout
+  // must not render staff UI on the assumption that something else ran.
+  const session = await getStaffSessionFromCookies();
+  if (!session) redirect("/login?next=%2Fadmin");
+
+  return <StaffNameProvider name={session.name}>{children}</StaffNameProvider>;
 }

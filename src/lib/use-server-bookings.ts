@@ -123,7 +123,8 @@ export function useServerBookings(): ServerBookings {
 }
 
 /**
- * Moves one booking's payment status, attributed to `by`.
+ * Moves one booking's payment status. The server attributes the change to
+ * the name on the staff session; nothing about who is sent from here.
  *
  * Returns whether it worked, so the caller can refresh on success and say
  * something on failure. The status change and its history row are written
@@ -138,13 +139,12 @@ export function useServerBookings(): ServerBookings {
 export async function patchBookingJob(
   ref: string,
   jobStatus: string,
-  by: string,
 ): Promise<boolean> {
   try {
     const response = await fetch(`/api/bookings/${encodeURIComponent(ref)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jobStatus, by }),
+      body: JSON.stringify({ jobStatus }),
     });
     return response.ok;
   } catch {
@@ -160,13 +160,12 @@ export async function patchBookingJob(
 export async function patchBookingPayment(
   ref: string,
   paymentStatus: string,
-  by: string,
 ): Promise<boolean> {
   try {
     const response = await fetch(`/api/bookings/${encodeURIComponent(ref)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ paymentStatus, by }),
+      body: JSON.stringify({ paymentStatus }),
     });
     return response.ok;
   } catch {

@@ -9,6 +9,20 @@ export function isValidKenyanPhone(value: string): boolean {
   return /^(?:\+?254|0)(?:7|1)\d{8}$/.test(digits);
 }
 
+/**
+ * One spelling for a Kenyan mobile number, "07XXXXXXXX" / "01XXXXXXXX",
+ * whichever way it was typed ("0712 345 678", "+254712345678",
+ * "254-712-345-678"). Null if it is not a valid number at all.
+ *
+ * Phones are stored as typed, so anything that needs to know whether two
+ * records are the same number compares these, never the raw strings.
+ */
+export function canonicalKenyanPhone(value: string): string | null {
+  const digits = value.replace(/[\s-]/g, "");
+  if (!/^(?:\+?254|0)(?:7|1)\d{8}$/.test(digits)) return null;
+  return `0${digits.slice(-9)}`;
+}
+
 export function requiredText(value: string, label: string): string | undefined {
   return value.trim().length === 0 ? `${label} is required.` : undefined;
 }

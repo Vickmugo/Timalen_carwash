@@ -23,7 +23,6 @@
  */
 
 import { useSyncExternalStore } from "react";
-import { UNATTRIBUTED } from "@/data/admin-users";
 import type {
   Booking,
   ChangeRequest,
@@ -276,9 +275,8 @@ function prependChange(
 ): StatusChange[] {
   const entry: StatusChange = {
     to,
-    // Trimmed because the name comes from a free-text field; a stray space
-    // would otherwise store " " and read as an anonymous change.
-    by: by.trim() || UNATTRIBUTED,
+    // The name on the staff session, passed down from the /admin layout.
+    by,
     at: new Date().toISOString(),
   };
   // Most recent first, matching the field's documented order.
@@ -353,59 +351,6 @@ export function updateOrderPayment(
     paymentStatus,
     by,
   );
-}
-
-/* --------------------------- Acting as ---------------------------- */
-
-/**
- * WHO IS AT THE COUNTER, for this browser tab only.
- *
- * sessionStorage, not localStorage, and the difference is the point. The
- * records above are meant to survive a closed browser; a name tag is not.
- * It should be gone the next time the tab is opened, so that nobody's
- * changes are silently stamped with the name of whoever used the machine
- * last week. sessionStorage is also per-tab, so two people on one shared
- * counter machine can have a tab each.
- *
- * It rides the same subscribe/notify machinery as everything else in this
- * file so the staff view sees it change through the usual hook, and the
- * whole client-state mechanism in this app stays one thing.
- *
- * Again, and it bears repeating at every layer: this is a self-reported
- * name with nothing behind it. See src/data/admin-users.ts.
- */
-const ACTOR_KEY = "demo.actingAs";
-
-/**
- * No snapshot cache here, unlike the arrays above.
- *
- * That cache exists because useSyncExternalStore compares snapshots by
- * identity and a freshly-parsed array is a new object every read, which
- * would loop forever. A string is compared by value, so returning a new
- * one that happens to be equal is a no-op. Nothing to cache.
- */
-export function getActingAs(): string {
-  if (typeof window === "undefined") return "";
-  try {
-    return window.sessionStorage.getItem(ACTOR_KEY) ?? "";
-  } catch {
-    return ""; // storage blocked (private mode, embedded webview)
-  }
-}
-
-export function setActingAs(name: string): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.sessionStorage.setItem(ACTOR_KEY, name);
-  } catch {
-    // Ignored, as with the writes above. Changes then get stamped
-    // `UNATTRIBUTED` rather than the page breaking.
-  }
-  notify();
-}
-
-export function useActingAs(): string {
-  return useSyncExternalStore(subscribe, getActingAs, () => "");
 }
 
 /* ------------------------------ Demo ------------------------------ */

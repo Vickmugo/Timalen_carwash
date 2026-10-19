@@ -4,6 +4,9 @@ import { formatKes } from "@/lib/format";
 import { hasOfficialReceipt } from "@/lib/payments";
 import type { PaymentStatus, PaymentSummary } from "@/types";
 
+/** Only what is safe to show to anyone holding the ref. */
+type PaymentNotice = Pick<PaymentSummary, "status" | "amountKes" | "amountReceivedKes" | "receipt">;
+
 /**
  * =====================================================================
  * WHERE THE PAYMENT STANDS — the block on every confirmation page.
@@ -12,8 +15,9 @@ import type { PaymentStatus, PaymentSummary } from "@/types";
  *
  * THE RULE IT EXISTS TO KEEP: no receipt number, no "Paid" and no
  * printable receipt until staff have confirmed the money. A customer who
- * has just typed an M-Pesa code sees "Payment pending verification" and
- * the code they typed, not a tick; somebody paying cash sees "Pay cash at
+ * has just typed an M-Pesa code sees "Payment pending verification", not
+ * a tick (the code itself is not shown: this block renders for anyone
+ * holding the ref — see src/lib/public-view.ts); somebody paying cash sees "Pay cash at
  * the yard". The receipt link appears only once a receipt exists.
  * =====================================================================
  */
@@ -30,7 +34,7 @@ export function PaymentStatusNotice({
   context,
   receiptHref,
 }: {
-  payment: PaymentSummary | undefined;
+  payment: PaymentNotice | undefined;
   /** The old status, for a record made before payments were recorded. */
   legacyStatus?: PaymentStatus;
   context: keyof typeof CASH_WORDS;
@@ -71,10 +75,8 @@ export function PaymentStatusNotice({
           Payment pending verification
         </p>
         <p className="mt-1 text-sm text-slab-800">
-          We will check M-Pesa code{" "}
-          <span className="font-mono font-bold">{payment.mpesaCode}</span> for{" "}
-          {formatKes(payment.amountKes)} against our statement. Your receipt is
-          issued once it is confirmed.
+          We will check your M-Pesa payment of {formatKes(payment.amountKes)}{" "}
+          against our statement. Your receipt is issued once it is confirmed.
         </p>
       </div>
     );

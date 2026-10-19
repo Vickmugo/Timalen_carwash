@@ -1,7 +1,69 @@
 import path from "node:path";
 import type { NextConfig } from "next";
 
+/**
+ * SECURITY HEADERS.
+ *
+ * CSP IN TWO PARTS. Next.js injects inline scripts for hydration, so a
+ * strict script policy cannot simply be switched on. What IS enforced is
+ * only the set of directives that cannot affect rendering: no framing (the
+ * staff view especially), no <base> hijack, forms post only to this site,
+ * no plugins. Everything else is sent as Report-Only, so violations show
+ * in the browser console without blocking anything until someone decides
+ * to enforce it.
+ *
+ * External origins: none are loaded. Fonts come through next/font, which
+ * self-hosts them; WhatsApp (wa.me) appears only as link targets, which a
+ * CSP does not govern. Development adds what `next dev` needs (eval for
+ * React's dev tooling, a websocket for hot reload) so the report-only
+ * console stays readable there too.
+ *
+ * HSTS is deliberately NOT set here: check what the host already sends on
+ * the live domain first.
+ */
+const isDev = process.env.NODE_ENV === "development";
+
+const ENFORCED_CSP = [
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "object-src 'none'",
+].join("; ");
+
+const REPORT_ONLY_CSP = [
+  "default-src 'self'",
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self'",
+  `connect-src 'self'${isDev ? " ws: wss:" : ""}`,
+].join("; ");
+
+const SECURITY_HEADERS = [
+  { key: "Content-Security-Policy", value: ENFORCED_CSP },
+  { key: "Content-Security-Policy-Report-Only", value: REPORT_ONLY_CSP },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+  { key: "X-Frame-Options", value: "DENY" },
+];
+
+/** robots.txt is a request, not a control; this header is the backstop. */
+const NOINDEX = [{ key: "X-Robots-Tag", value: "noindex, nofollow" }];
+
 const nextConfig: NextConfig = {
+  /** Stops advertising the framework and version on every response. */
+  poweredByHeader: false,
+
+  headers() {
+    return Promise.resolve([
+      { source: "/:path*", headers: SECURITY_HEADERS },
+      { source: "/api/:path*", headers: NOINDEX },
+      { source: "/admin", headers: NOINDEX },
+      { source: "/admin/:path*", headers: NOINDEX },
+    ]);
+  },
+
   /**
    * DEV ONLY. Hosts allowed to request Next.js's own dev assets.
    *

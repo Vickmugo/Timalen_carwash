@@ -486,6 +486,14 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
       return;
     }
 
+    // Too many upcoming bookings on this number: not a slot problem, so
+    // they stay on the form with the server's sentence.
+    if (failure?.error === "phone_limit") {
+      setPaymentError(failure.detail ?? "This number already has the most upcoming bookings we take; call us to add more.");
+      setSubmitting(false);
+      return;
+    }
+
     // The slot went while the form was open. Send them back to the grid
     // with the reason, and refetch it so the taken time is greyed out.
     if (response.status === 409) {
@@ -508,7 +516,7 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
         cause is in the server log, which is where it belongs.
       */
       setPaymentError(
-        response.status === 400 && failure?.detail
+        [400, 413, 429].includes(response.status) && failure?.detail
           ? failure.detail
           : "We could not save your booking. Nothing has been reserved — please try again.",
       );
