@@ -1,15 +1,22 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { getBookingByRef, updateBookingPayment } from "@/lib/bookings-db";
+import {
+  JOB_STATUSES,
+  getBookingByRef,
+  updateBookingJobStatus,
+  updateBookingPayment,
+} from "@/lib/bookings-db";
 import { isStaffRequest } from "@/lib/staff-guard";
-import type { PaymentStatus } from "@/types";
+import type { JobStatus, PaymentStatus } from "@/types";
 
 /**
  * =====================================================================
  * /api/bookings/[ref] — one booking, by its printed reference.
  * ---------------------------------------------------------------------
  *   GET    read it. Anyone holding the reference.
- *   PATCH  change its payment status. STAFF ONLY.
+ *   PATCH  change its job status, or (legacy bookings only) its payment
+ *          status. STAFF ONLY. A booking with a payment record has its
+ *          payment moved through /api/payments/[id], never here.
  *
  * WHO CAN READ A BOOKING NOW, AND WHY IT IS WORTH SAYING OUT LOUD.
  *
@@ -82,11 +89,30 @@ export async function PATCH(
 
   const { ref } = await params;
 
-  let body: { paymentStatus?: unknown; by?: unknown };
+  let body: { paymentStatus?: unknown; jobStatus?: unknown; by?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
     return json({ error: "bad_request", detail: "Body is not JSON." }, 400);
+  }
+
+  /* ---- the work: booked -> in progress -> done, or cancelled / no-show ---- */
+  if (body.jobStatus !== undefined) {
+    const jobStatus = body.jobStatus as JobStatus;
+    if (!JOB_STATUSES.includes(jobStatus)) {
+      return json({ error: "bad_request", detail: "Unknown job status." }, 400);
+    }
+    const by = typeof body.by === "string" ? body.by : "";
+    try {
+      const result = await updateBookingJobStatus(ref, jobStatus, by);
+      if (result.ok) return json({ booking: result.booking }, 200);
+      if (result.reason === "not_found") return json({ error: "not_found" }, 404);
+      console.error(`[api/bookings/[ref]] job PATCH failed: ${result.detail}`);
+      return json({ error: "write_failed" }, 503);
+    } catch (error) {
+      console.error("[api/bookings/[ref]] job PATCH threw:", error);
+      return json({ error: "write_failed" }, 503);
+    }
   }
 
   const paymentStatus = body.paymentStatus as PaymentStatus;
@@ -113,6 +139,15 @@ export async function PATCH(
 
     if (result.ok) return json({ booking: result.booking }, 200);
     if (result.reason === "not_found") return json({ error: "not_found" }, 404);
+    if (result.reason === "has_payment") {
+      return json(
+        {
+          error: "has_payment",
+          detail: "This booking has a payment record. Verify it or record the cash instead.",
+        },
+        409,
+      );
+    }
 
     console.error(`[api/bookings/[ref]] PATCH failed: ${result.detail}`);
     return json({ error: "write_failed" }, 503);

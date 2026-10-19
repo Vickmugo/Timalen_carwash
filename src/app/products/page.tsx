@@ -9,6 +9,7 @@ import {
   getProductsByCategory,
   productCategories,
   products,
+  variantNoun,
 } from "@/data/products";
 import type { Product, ProductCategoryId } from "@/types";
 import { productPriceRange } from "@/lib/prices";
@@ -242,7 +243,7 @@ function ProductCard({
               <span className="text-xs text-slab-500">
                 {product.unitLabel}
                 {product.variants
-                  ? `, ${product.variants.length} heights`
+                  ? `, ${product.variants.length} ${variantNoun(product)}s`
                   : ""}
               </span>
             </span>

@@ -102,7 +102,7 @@ export default function CartPage() {
               </span>
             </div>
             <p className="mt-1 text-sm text-slab-500">
-              Delivery is arranged separately and is not included.
+              Collect from the yard. We do not deliver.
             </p>
 
             {evaluation.requiresQuote ? (

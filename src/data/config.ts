@@ -96,15 +96,55 @@ export const quoteRules = {
    */
 } as const;
 
-export const paymentConfig = {
-  currency: "KES",
-  /**
-   * Which aggregator the client intends to use once this goes live.
-   * Shown in the checkout UI as the payment method label.
-   *
-   * TODO / CONFIRM WITH CLIENT: pick one of Pesapal / Flutterwave / IntaSend.
-   * All three wrap M-Pesa STK push, so the client does not need a direct
-   * Daraja integration.
-   */
-  aggregatorLabel: "M-Pesa (via payment provider)",
+/**
+ * EVERYTHING IS COLLECTED FROM THE PREMISES. NOTHING IS DELIVERED.
+ *
+ * Concrete is collected from the yard; carpets and sofa sets are brought
+ * to the yard and collected from it. There is no delivery service, so no
+ * form asks for an address and no page offers one.
+ *
+ * This is the one wording used wherever a concrete record says where the
+ * goods go — the checkout, the confirmation, the receipt, the quote form
+ * and the staff view — and what new orders and quote requests store in
+ * their NOT NULL `delivery_location` column. No street address is given
+ * because none has been confirmed; see `businessAddress` in
+ * src/data/business.ts.
+ */
+export const COLLECT_FROM_YARD = "Collect from the yard";
+
+/**
+ * WHERE M-PESA MONEY GOES — THE ONLY PLACE THESE NUMBERS LIVE.
+ *
+ * Every screen that tells a customer how to pay, and the receipt letterhead,
+ * reads from here. `business.tillNumber` in src/data/business.ts points at
+ * the till below rather than holding a second copy.
+ *
+ * Which one a payment may use is decided by its stream, not by the
+ * customer, and enforced by the server and by a CHECK on `payments`:
+ *
+ *   till      car wash bookings AND carpet/sofa requests
+ *   paybill   concrete product orders
+ *
+ * TILL 9806711 — BUY GOODS AND SERVICES, supplied by the client. No account
+ * number: a Buy Goods till does not take one.
+ *
+ * PAYBILL 522533, ACCOUNT 7546741 — as written on the client's sign for the
+ * concrete side. 522533 is KCB's shared paybill, and the account number is
+ * what routes the money to the yard. TODO / CONFIRM WITH CLIENT that this
+ * is exactly what customers should type: a wrong digit in the account
+ * number sends the money to somebody else's KCB account.
+ *
+ * NO BUSINESS NAME is shown beside either number. The name M-Pesa displays
+ * before the customer confirms is the registered owner's, which nobody has
+ * confirmed yet (the till sticker carries a handwritten name). Printing a
+ * guess would teach customers to expect a name they may not see.
+ */
+export const mpesaDestinations = {
+  till: {
+    tillNumber: "9806711",
+  },
+  paybill: {
+    businessNumber: "522533",
+    accountNumber: "7546741",
+  },
 } as const;

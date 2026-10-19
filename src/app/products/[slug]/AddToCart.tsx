@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Button, ButtonLink } from "@/components/Button";
 import { quoteRules } from "@/data/config";
+import { variantNoun } from "@/data/products";
 import type { PriceCell, Product, ProductVariant } from "@/types";
 import { addItem } from "@/lib/cart";
 import { cartLineName } from "@/lib/cart-line";
@@ -65,13 +66,13 @@ export function VariantAddToCart({
         </span>
         <span className="text-sm text-slab-500">
           {product.unitLabel}
-          {choice ? `, ${choice.variant.label}` : ", depending on height"}
+          {choice ? `, ${choice.variant.label}` : `, depending on ${variantNoun(product)}`}
         </span>
       </div>
 
       <fieldset className="mt-5">
         <legend className="text-sm font-bold uppercase tracking-wide text-slab-700">
-          Height
+          {variantNoun(product)}
         </legend>
         <div className="mt-1.5 flex flex-wrap gap-2">
           {variants.map(({ variant, priceKes }) => {
@@ -204,7 +205,7 @@ export function AddToCart({
         <div className="mt-4 rounded-slab border-2 border-hivis bg-hivis-tint p-4">
           <p className="text-sm text-slab-800">
             Over {quoteRules.maxUnitsPerLine} units
-            {product.variants ? " of one height" : ""}, so this goes to a
+            {product.variants ? ` of one ${variantNoun(product)}` : ""}, so this goes to a
             quote rather than checkout. You can still add it to the cart — the
             cart will hand you over to the quote form.
           </p>
@@ -221,7 +222,7 @@ export function AddToCart({
         onClick={handleAdd}
         disabled={!choice}
       >
-        {choice ? "Add to cart" : "Pick a height first"}
+        {choice ? "Add to cart" : `Pick a ${variantNoun(product)} first`}
       </Button>
 
       {added ? (

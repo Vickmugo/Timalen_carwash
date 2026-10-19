@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
+import { getOrderByRef } from "@/lib/orders-db";
 import { OrderConfirmation } from "./OrderConfirmation";
 
 /**
  * `noindex`, for the same reason as the booking confirmation: without the
- * ?ref of an order the visitor placed themselves this page can only render
- * its "order not found" state, and that is the version a crawler would
- * index. See app/robots.ts, which disallows the path as well.
+ * ?ref of a real order this page can only render "order not found", and
+ * that is the version a crawler would index. app/robots.ts disallows the
+ * path as well.
+ *
+ * FETCHED ON THE SERVER, like /book/confirmed. Orders moved off
+ * localStorage; see src/lib/orders-db.ts.
  */
 export const metadata: Metadata = {
   title: "Order placed",
@@ -14,12 +17,20 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function OrderConfirmedPage() {
+export const dynamic = "force-dynamic";
+
+export default async function OrderConfirmedPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ ref?: string | string[] }>;
+}) {
+  const { ref } = await searchParams;
+  const reference = typeof ref === "string" ? ref : "";
+  const order = reference ? await getOrderByRef(reference) : null;
+
   return (
     <div className="mx-auto max-w-2xl px-4 py-10">
-      <Suspense fallback={<p className="text-slab-500">Loading your order...</p>}>
-        <OrderConfirmation />
-      </Suspense>
+      <OrderConfirmation order={order} />
     </div>
   );
 }

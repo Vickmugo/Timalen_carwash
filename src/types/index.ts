@@ -195,6 +195,7 @@ export type ProductCategoryId =
   | "wall-caps"
   | "road-kerbs"
   | "channels"
+  | "drainage-channels"
   | "cornices"
   | "cabros";
 
@@ -247,6 +248,13 @@ export interface Product {
    * line for it must name one. Absent means one price for the product.
    */
   variants?: ProductVariant[];
+  /**
+   * What the variants measure, in the words the picker uses: "height" for
+   * posts and spindles, "length" for drainage channels. Absent means
+   * "height", which is what every product sold in sizes meant before
+   * drainage channels arrived. Only read when `variants` is present.
+   */
+  variantNoun?: string;
   status: FulfilmentStatus;
   /**
    * Bypasses the cart entirely and always routes to the quote form —
@@ -315,6 +323,137 @@ export interface CartLine {
 /* ------------------------------------------------------------------ */
 
 export type PaymentStatus = "paid" | "pay_on_collection" | "unpaid";
+
+/* ------------------------------------------------------------------ */
+/* Payments and receipts (the `payments` / `receipts` tables)          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Which business line the money belongs to. Decides where it may be paid
+ * (till or paybill) and which receipt series it lands in (W or C). Carpet
+ * and sofa requests are `wash`: they are the wash bay's work and pay to its
+ * till.
+ */
+export type PaymentStream = "wash" | "concrete";
+export type PaymentMethod = "mpesa" | "cash";
+export type PaymentDestination = "till" | "paybill";
+
+/**
+ * ONE PAYMENT ATTEMPT'S STATE.
+ *
+ *   claimed        the customer typed an M-Pesa code. A claim, not proof.
+ *   verified       staff matched it against the statement or SMS
+ *   rejected       staff could not; they phone the customer
+ *   cash_due       the customer chose to pay cash at the yard
+ *   cash_received  staff took the cash
+ *
+ * The server only ever CREATES `claimed` or `cash_due`. The other three
+ * are set by `resolve_payment()` in the database, called only from the
+ * staff API routes.
+ */
+export type PaymentRecordStatus =
+  | "claimed"
+  | "verified"
+  | "rejected"
+  | "cash_due"
+  | "cash_received";
+
+export type ReceiptStatus = "issued" | "void";
+
+/** What a record's page needs to know about its receipt. */
+export interface ReceiptSummary {
+  /** "W-000001". Only exists once staff have confirmed the money. */
+  number: string;
+  status: ReceiptStatus;
+  issuedAt: string;
+}
+
+/** One payment on a booking, order or carpet request. */
+export interface PaymentSummary {
+  id: string;
+  method: PaymentMethod;
+  destination: PaymentDestination | null;
+  status: PaymentRecordStatus;
+  /** Expected, as the server priced it. */
+  amountKes: number;
+  amountReceivedKes: number | null;
+  mpesaCode: string | null;
+  claimedAt: string;
+  rejectReason: string | null;
+  receipt: ReceiptSummary | null;
+}
+
+/**
+ * ONE LINE ON A RECEIPT, AS IT READ WHEN THE RECEIPT WAS ISSUED. Built by
+ * `receipt_snapshot()` in the database from the booking, order or carpet
+ * request, then frozen: the receipt is rendered from this and nothing else.
+ */
+export interface ReceiptLine {
+  name: string;
+  variant: string | null;
+  unit: string | null;
+  quantity: number;
+  /** Per unit. Null only on an unpriced carpet line (sofa set). */
+  price_kes: number | null;
+}
+
+/**
+ * The frozen copy inside `receipts.snapshot`. snake_case because it is
+ * written by SQL and read back verbatim; translating it would be a second
+ * place for a field to be dropped.
+ */
+export interface ReceiptSnapshot {
+  kind: "booking" | "order" | "carpet";
+  ref: string;
+  customer_name: string;
+  phone: string;
+  lines: ReceiptLine[];
+  stream: PaymentStream;
+  method: PaymentMethod;
+  destination: PaymentDestination | null;
+  mpesa_code: string | null;
+  expected_kes: number;
+  received_kes: number;
+  amount_differs: boolean;
+  claimed_at: string;
+  confirmed_at: string;
+  confirmed_by: string;
+  /* booking only */
+  vehicle?: string;
+  priced_as?: string | null;
+  date?: string;
+  start_time?: string;
+  end_time?: string;
+  /* order only */
+  collection?: string;
+  /* carpet only: the stored sentence, for requests made before priced lines */
+  item_text?: string;
+}
+
+/** One row of `receipts`, for the ledger and the printed receipt. */
+export interface ReceiptRecord {
+  id: string;
+  number: string;
+  series: "W" | "C";
+  seq: number;
+  status: ReceiptStatus;
+  issuedAt: string;
+  /** Self-reported "Acting as" name. */
+  issuedBy: string;
+  amountKes: number;
+  method: PaymentMethod;
+  mpesaCode: string | null;
+  voidedAt: string | null;
+  voidedBy: string | null;
+  voidReason: string | null;
+  snapshot: ReceiptSnapshot;
+}
+
+/**
+ * The work, separately from the money. A car can be washed and not paid
+ * for; that is the case "Done, not paid" in the staff view finds.
+ */
+export type JobStatus = "booked" | "in_progress" | "done" | "cancelled" | "no_show";
 
 /**
  * ONE STATUS CHANGE, AND THE NAME OF WHOEVER SAYS THEY MADE IT.
@@ -402,6 +541,16 @@ export interface Booking {
   vehicle: string;
   notes: string;
   paymentStatus: PaymentStatus;
+  /**
+   * Absent only on a booking read before the payments migration. Every
+   * row in the database has one ('booked' by default).
+   */
+  jobStatus?: JobStatus;
+  /**
+   * The most recent payment attempt, or absent for a booking made before
+   * payments were recorded. Those still have `paymentStatus`, set by hand.
+   */
+  payment?: PaymentSummary;
   createdAt: string;
   /**
    * Status changes made in the staff view, MOST RECENT FIRST.
@@ -420,9 +569,12 @@ export interface Order {
   subtotalKes: number;
   customerName: string;
   phone: string;
+  /** Always "Collect from the yard" on a new order. See COLLECT_FROM_YARD. */
   deliveryLocation: string;
   notes: string;
   paymentStatus: PaymentStatus;
+  /** Absent on the old localStorage orders, which had no payment record. */
+  payment?: PaymentSummary;
   createdAt: string;
   /**
    * Status changes made in the staff view, MOST RECENT FIRST.

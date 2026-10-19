@@ -209,6 +209,11 @@ export const productCategories: ProductCategory[] = [
     blurb: "Cast channel sections for carrying surface water off a yard.",
   },
   {
+    id: "drainage-channels",
+    name: "Drainage Channels",
+    blurb: "Cast drainage channel sections, sold by length.",
+  },
+  {
     id: "cornices",
     name: "Cornices",
     blurb: "Precast cornice moulding for finishing a wall head or roofline.",
@@ -435,6 +440,42 @@ export const products: Product[] = [
     images: [],
   },
 
+  /* ------------------------ Drainage Channels ----------------------- */
+  /*
+    A SEPARATE LINE FROM "Channels" ABOVE, ON PURPOSE FOR NOW. The client
+    priced "drainage channels" by length (1 ft 400, 2 ft 600, October 2026)
+    while "Channels" carries a single confirmed 250 per piece. They may be
+    the same product described twice; nobody has said, so both are listed
+    exactly as given and the decision is the owner's, not this file's.
+
+    NO PHOTOGRAPH AND NO SPECS. The two lengths are the only facts given,
+    and they live on the picker. Do not borrow the Channels, Slabs or
+    staging photographs for this entry.
+
+    Same variant mechanism as posts and spindles: one `product_prices` row
+    per length (supabase/migrations/20261017190000_drainage_channels.sql),
+    nothing preselected, one cart line per length.
+  */
+  {
+    id: "drainage-channel",
+    slug: "drainage-channels",
+    categoryId: "drainage-channels",
+    name: "Drainage Channels",
+    description:
+      "Cast concrete drainage channel sections, sold by length. Photograph and sizes to follow.",
+    unitLabel: "per piece",
+    variants: [
+      { id: "1ft", label: "1 ft" },
+      { id: "2ft", label: "2 ft" },
+    ],
+    variantNoun: "length",
+    // UNCONFIRMED STATUS — see the note on channels above.
+    status: "ready_to_ship",
+    quoteOnly: false,
+    specs: [],
+    images: [],
+  },
+
   /* ---------------------------- Cornices ---------------------------- */
   {
     id: "cornice",
@@ -478,6 +519,11 @@ export const products: Product[] = [
 
 export function getProduct(slug: string): Product | undefined {
   return products.find((product) => product.slug === slug);
+}
+
+/** "height" or "length" — what a product's sizes are called on screen. */
+export function variantNoun(product: Pick<Product, "variantNoun">): string {
+  return product.variantNoun ?? "height";
 }
 
 export function getProductById(id: string): Product | undefined {

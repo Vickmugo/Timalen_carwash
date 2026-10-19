@@ -1,38 +1,23 @@
 import type { Metadata } from "next";
-import { BookingReceipt, NotFound } from "@/components/Receipt";
+import { NotFound } from "@/components/Receipt";
 import { getBookingByRef } from "@/lib/bookings-db";
+import { ReceiptFor } from "../../ReceiptFor";
 
 /**
- * /receipt/booking/[ref] — the printable record of one wash booking.
+ * /receipt/booking/[ref] — the official receipt for one wash booking, once
+ * staff have confirmed the payment. Before that, a page that says so.
  *
- * The segment IS the booking reference, WB-4K9T2X and all, taken straight
- * from `makeRef` in src/lib/format.ts. No second identifier was invented
- * for the URL: the whole point of the printed reference is that the code on
- * the paper, the code in the address bar and the code a staff member types
- * into the staff view search are one string.
+ * The segment IS the booking reference, WB-4K9T2X and all, so the code on
+ * the confirmation, in the address bar and in the staff search is one
+ * string. The receipt itself carries its own number (W-000123).
  *
- * FETCHED ON THE SERVER as of Stage B. The booking comes from the database
- * through src/lib/bookings-db.ts — a direct call, not a hop through
- * /api/bookings/[ref], because a server component is already on the server
- * side of that boundary and the extra HTTP round trip would buy nothing.
- *
- * WHAT THIS CHANGED FOR THE CUSTOMER. This receipt used to be readable only
- * in the browser that made the booking; a link forwarded to anyone else,
- * including the yard, showed "not found". It now renders for whoever holds
- * the reference, which is what a receipt is for. The other side of that
- * coin — the reference is now the only thing protecting a customer's name
- * and phone number — is set out at the top of
- * src/app/api/bookings/[ref]/route.ts.
- *
- * `noindex` still, and app/robots.ts still disallows /receipt: a crawler
- * has no reference to follow, and these pages carry customer details.
- *
- * No `generateStaticParams`: references are created at runtime and there is
- * no build-time list of them, so this route is rendered on demand.
+ * The reference is the only credential, as it is for the booking itself;
+ * see src/app/api/bookings/[ref]/route.ts. `noindex`, and app/robots.ts
+ * disallows /receipt.
  */
 export const metadata: Metadata = {
   title: "Booking receipt",
-  description: "A printable record of a wash bay booking.",
+  description: "A printable receipt for a wash bay booking.",
   robots: { index: false, follow: false },
 };
 
@@ -47,17 +32,14 @@ export default async function BookingReceiptPage({
   const booking = await getBookingByRef(ref);
 
   if (!booking) {
-    return (
-      <NotFound
-        reference={ref}
-        backHref="/book"
-        backLabel="Book a wash"
-        // Not a per-device record any more, so the "try the other phone"
-        // explanation would be a wrong steer. See the note on NotFound.
-        storedLocally={false}
-      />
-    );
+    return <NotFound reference={ref} backHref="/book" backLabel="Book a wash" />;
   }
 
-  return <BookingReceipt booking={booking} />;
+  return (
+    <ReceiptFor
+      reference={booking.ref}
+      payment={booking.payment}
+      backHref={`/book/confirmed?ref=${encodeURIComponent(booking.ref)}`}
+    />
+  );
 }

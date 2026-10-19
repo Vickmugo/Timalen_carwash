@@ -9,14 +9,20 @@
  * /api/carpet-requests, so every staff device sees the same list.
  *
  * READ-ONLY FOR NOW. Every request arrives as `new` and there is no control
- * here to move it on: status changes on the server need the audit write
- * that bookings have (`status_changes`), and that is a job of its own. The
- * list is for ringing people back, and the phone number is a link.
+ * here to move it on. The payment shows here; it is verified or marked
+ * received in the queues at the top of the page. The list is for ringing
+ * people back, and the phone number is a link.
+ *
+ * The Hand-over column prints what each request stored. New requests all
+ * say they are brought to the yard; older ones keep the drop-off or
+ * collection address the customer gave when the form still asked.
  * =====================================================================
  */
 
 import { useEffect, useState } from "react";
 import { formatTimestamp } from "@/lib/format";
+import type { PaymentSummary } from "@/types";
+import { PaymentCell } from "./PaymentCell";
 
 interface CarpetRequest {
   ref: string;
@@ -28,13 +34,14 @@ interface CarpetRequest {
   notes: string;
   status: string;
   createdAt: string;
+  payment?: PaymentSummary;
 }
 
 const th =
   "whitespace-nowrap px-3 py-2 text-left text-xs font-bold uppercase tracking-wide text-slab-400";
 const td = "px-3 py-2.5 align-top text-sm";
 
-export function CarpetRequests() {
+export function CarpetRequests({ refreshKey = 0 }: { refreshKey?: number }) {
   const [requests, setRequests] = useState<CarpetRequest[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,7 +65,8 @@ export function CarpetRequests() {
     return () => {
       cancelled = true;
     };
-  }, []);
+    // Re-read when the page says a payment moved.
+  }, [refreshKey]);
 
   if (error) {
     return (
@@ -88,6 +96,7 @@ export function CarpetRequests() {
             <th className={th}>Phone</th>
             <th className={th}>Wants</th>
             <th className={th}>Hand-over</th>
+            <th className={th}>Payment</th>
           </tr>
         </thead>
         <tbody className="md:divide-y-2 md:divide-slab-100">
@@ -119,6 +128,13 @@ export function CarpetRequests() {
               </td>
               <td className={td} data-label="Hand-over">
                 {request.deliveryLocation}
+              </td>
+              <td className={td} data-label="Payment">
+                {request.payment ? (
+                  <PaymentCell payment={request.payment} kind="carpet" reference={request.ref} />
+                ) : (
+                  <span className="text-xs text-slab-500">No payment record</span>
+                )}
               </td>
             </tr>
           ))}

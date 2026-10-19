@@ -1,17 +1,42 @@
 "use client";
 
+/**
+ * =====================================================================
+ * CONCRETE CHECKOUT — collect from the yard, pay by M-Pesa or cash.
+ * ---------------------------------------------------------------------
+ * WRITES TO THE SERVER now (/api/orders), not to this browser. What is
+ * sent is what is in the basket — product, size, quantity — and the
+ * customer's details and payment choice. NOT the prices: the server prices
+ * every line from the live price book and stores its own total, which is
+ * what the confirmation page then shows. The figures below are the
+ * basket's copy, as they read when each item was added.
+ *
+ * NOTHING IS DELIVERED, so nothing here asks for an address. Concrete is
+ * collected from the yard; see COLLECT_FROM_YARD in src/data/config.ts.
+ *
+ * NO PAYMENT IS TAKEN HERE. The customer pays to the paybill on their own
+ * phone and types the SMS code, or chooses cash at collection. The mock
+ * "payment succeeded" step that used to run first is gone.
+ * =====================================================================
+ */
+
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, ButtonLink } from "@/components/Button";
 import { TextAreaField, TextField } from "@/components/Field";
 import { PageHeader } from "@/components/PageHeader";
-import { paymentConfig } from "@/data/config";
-import type { Order, PaymentStatus } from "@/types";
+import {
+  EMPTY_PAYMENT,
+  PaymentChoice,
+  paymentBody,
+  paymentError,
+  type PaymentValue,
+} from "@/components/PaymentChoice";
+import { COLLECT_FROM_YARD } from "@/data/config";
+import { business } from "@/data/business";
 import { clearCart, useCart } from "@/lib/cart";
 import { cartLineKey, cartLineName } from "@/lib/cart-line";
-import { formatKes, makeRef } from "@/lib/format";
-import { processPayment } from "@/lib/payment";
-import { addOrder } from "@/lib/store";
+import { formatKes } from "@/lib/format";
 import { compactErrors, phoneError, requiredText } from "@/lib/validate";
 
 export default function CheckoutPage() {
@@ -21,13 +46,12 @@ export default function CheckoutPage() {
   const [form, setForm] = useState({
     customerName: "",
     phone: "",
-    deliveryLocation: "",
     notes: "",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [paymentMethod, setPaymentMethod] = useState<PaymentStatus>("paid");
+  const [payment, setPayment] = useState<PaymentValue>(EMPTY_PAYMENT);
   const [submitting, setSubmitting] = useState(false);
-  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // An over-threshold cart must never reach a payment screen.
   useEffect(() => {
@@ -38,6 +62,10 @@ export default function CheckoutPage() {
 
   function update(field: keyof typeof form, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
+    clearError(field);
+  }
+
+  function clearError(field: string) {
     setErrors((current) => {
       if (!current[field]) return current;
       const next = { ...current };
@@ -50,47 +78,65 @@ export default function CheckoutPage() {
     const found = compactErrors({
       customerName: requiredText(form.customerName, "Name"),
       phone: phoneError(form.phone),
-      deliveryLocation: requiredText(
-        form.deliveryLocation,
-        "Delivery or collection point",
-      ),
+      payment: paymentError(payment),
     });
     setErrors(found);
     if (Object.keys(found).length > 0) return;
 
     setSubmitting(true);
-    setPaymentError(null);
+    setSubmitError(null);
 
-    const ref = makeRef("OR");
-
-    if (paymentMethod === "paid") {
-      const result = await processPayment({
-        amountKes: subtotalKes,
-        phone: form.phone,
-        reference: ref,
+    let response: Response;
+    try {
+      response = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          // What was chosen, not what it costs.
+          lines: lines.map((line) => ({
+            productId: line.productId,
+            variantId: line.variantId ?? "",
+            quantity: line.quantity,
+          })),
+          customerName: form.customerName.trim(),
+          phone: form.phone.trim(),
+          notes: form.notes.trim(),
+          payment: paymentBody(payment, "concrete"),
+        }),
       });
-      if (!result.success) {
-        setPaymentError(result.message);
-        setSubmitting(false);
-        return;
-      }
+    } catch {
+      setSubmitError("We could not reach the yard's system. Check your connection and try again.");
+      setSubmitting(false);
+      return;
     }
 
-    const order: Order = {
-      ref,
-      lines,
-      subtotalKes,
-      customerName: form.customerName.trim(),
-      phone: form.phone.trim(),
-      deliveryLocation: form.deliveryLocation.trim(),
-      notes: form.notes.trim(),
-      paymentStatus: paymentMethod,
-      createdAt: new Date().toISOString(),
-    };
+    if (!response.ok) {
+      const failure = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        detail?: string;
+      };
+      if (failure.error === "code_used") {
+        setErrors((current) => ({
+          ...current,
+          payment: failure.detail ?? "This M-Pesa code has already been used.",
+        }));
+      } else if (failure.error === "needs_quote") {
+        router.replace("/quote?from=cart");
+        return;
+      } else {
+        setSubmitError(
+          response.status === 400 && failure.detail
+            ? failure.detail
+            : "We could not place your order. Nothing was saved — please try again.",
+        );
+      }
+      setSubmitting(false);
+      return;
+    }
 
-    addOrder(order);
+    const { order } = (await response.json()) as { order: { ref: string } };
     clearCart();
-    router.push(`/checkout/confirmed?ref=${order.ref}`);
+    router.push(`/checkout/confirmed?ref=${encodeURIComponent(order.ref)}`);
   }
 
   if (!hydrated) {
@@ -145,15 +191,16 @@ export default function CheckoutPage() {
           ))}
           <li className="flex justify-between gap-2 bg-slab-50 px-4 py-3">
             <span className="text-sm font-bold uppercase tracking-wide text-slab-700">
-              Subtotal
+              Total
             </span>
             <span className="text-lg font-extrabold">
               {formatKes(subtotalKes)}
             </span>
           </li>
         </ul>
-        <p className="mt-2 text-sm text-slab-500">
-          Delivery is quoted separately once we know the location and load.
+        <p className="mt-2 text-sm text-slab-600">
+          <span className="font-semibold">{COLLECT_FROM_YARD}</span> at{" "}
+          {business.location}. We do not deliver.
         </p>
       </section>
 
@@ -183,68 +230,35 @@ export default function CheckoutPage() {
             error={errors.phone}
             onChange={(event) => update("phone", event.target.value)}
           />
-          <TextField
-            id="deliveryLocation"
-            label="Delivery or collection point"
-            required
-            hint="Town or estate, plus a landmark if the road is hard to find."
-            value={form.deliveryLocation}
-            error={errors.deliveryLocation}
-            onChange={(event) => update("deliveryLocation", event.target.value)}
-          />
           <TextAreaField
             id="notes"
             label="Notes for the yard"
-            hint="Optional. Access limits, preferred delivery day, offloading help."
+            hint="Optional. When you plan to collect, or help you need loading."
             value={form.notes}
             onChange={(event) => update("notes", event.target.value)}
           />
         </div>
       </section>
 
-      <fieldset className="mt-8">
-        <legend className="text-sm font-bold uppercase tracking-wide text-slab-700">
-          How would you like to pay?
-        </legend>
-        <div className="mt-3 flex flex-col gap-2">
-          {(
-            [
-              ["paid", `Pay now - ${paymentConfig.aggregatorLabel}`],
-              ["pay_on_collection", "Pay on collection or delivery"],
-            ] as const
-          ).map(([value, label]) => (
-            <label
-              key={value}
-              className={`flex cursor-pointer items-center gap-3 rounded-slab border-2 px-4 py-3 transition-colors duration-150 ease-out ${
-                paymentMethod === value
-                  ? "border-slab-900 bg-white"
-                  : "border-slab-200 bg-white hover:border-slab-400"
-              }`}
-            >
-              <input
-                type="radio"
-                name="paymentMethod"
-                value={value}
-                checked={paymentMethod === value}
-                onChange={() => setPaymentMethod(value)}
-                className="size-4 accent-hivis"
-              />
-              <span className="text-sm font-semibold">{label}</span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      <section className="mt-8" aria-label="Payment">
+        <PaymentChoice
+          context="concrete"
+          amountKes={subtotalKes}
+          value={payment}
+          onChange={(next) => {
+            setPayment(next);
+            clearError("payment");
+          }}
+          error={errors.payment}
+        />
+      </section>
 
-      <p className="mt-4 rounded-slab border-2 border-hivis bg-hivis-tint px-3 py-2 text-sm text-slab-800">
-        Demo only. No payment is processed and no M-Pesa prompt is sent.
-      </p>
-
-      {paymentError ? (
+      {submitError ? (
         <p
           role="alert"
           className="mt-4 rounded-slab border-2 border-alert bg-alert-tint px-3 py-2 text-sm font-semibold text-alert"
         >
-          {paymentError}
+          {submitError}
         </p>
       ) : null}
 
@@ -255,11 +269,7 @@ export default function CheckoutPage() {
         onClick={submit}
         disabled={submitting}
       >
-        {submitting
-          ? "Working..."
-          : paymentMethod === "paid"
-            ? `Pay ${formatKes(subtotalKes)}`
-            : "Place order"}
+        {submitting ? "Working..." : "Place order"}
       </Button>
     </div>
   );

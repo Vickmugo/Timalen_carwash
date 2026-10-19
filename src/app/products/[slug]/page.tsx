@@ -6,7 +6,7 @@ import { ButtonLink } from "@/components/Button";
 import { PageHeader } from "@/components/PageHeader";
 import { ProductGallery } from "@/components/ProductGallery";
 import { quoteRules } from "@/data/config";
-import { getProduct } from "@/data/products";
+import { getProduct, variantNoun } from "@/data/products";
 import { formatKes } from "@/lib/format";
 import { productPrice, productPriceRange, variantPrices } from "@/lib/prices";
 import { getPriceBook } from "@/lib/prices-db";
@@ -202,14 +202,14 @@ export default async function ProductPage({
 
               <p className="mt-4 text-sm text-slab-600">
                 Need more than {quoteRules.maxUnitsPerLine}
-                {product.variants ? " of one height" : ""}?{" "}
+                {product.variants ? ` of one ${variantNoun(product)}` : ""}?{" "}
                 <Link
                   href={`/quote?product=${product.slug}`}
                   className="font-semibold underline underline-offset-4 hover:text-slab-900"
                 >
                   Ask for a bulk quote
                 </Link>{" "}
-                instead — we will confirm production time and delivery.
+                instead — we will confirm production time. Collect from the yard.
               </p>
             </>
           )}

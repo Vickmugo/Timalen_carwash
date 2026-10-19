@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/Button";
 import { TextAreaField, TextField } from "@/components/Field";
+import { COLLECT_FROM_YARD } from "@/data/config";
 import { getProduct } from "@/data/products";
 import type { QuoteRequest } from "@/types";
 import { clearCart, useCart } from "@/lib/cart";
@@ -24,7 +25,6 @@ const BLANK = {
   phone: "",
   item: "",
   quantity: "",
-  deliveryLocation: "",
   notes: "",
 };
 
@@ -107,7 +107,6 @@ export function QuoteForm() {
       phone: phoneError(form.phone),
       item: requiredText(form.item, "What you need"),
       quantity: requiredText(form.quantity, "Quantity"),
-      deliveryLocation: requiredText(form.deliveryLocation, "Delivery location"),
     });
     setErrors(found);
     if (Object.keys(found).length > 0) return;
@@ -120,7 +119,8 @@ export function QuoteForm() {
       phone: form.phone.trim(),
       item: form.item.trim(),
       quantity: form.quantity.trim(),
-      deliveryLocation: form.deliveryLocation.trim(),
+      // Nothing is delivered; see COLLECT_FROM_YARD in src/data/config.ts.
+      deliveryLocation: COLLECT_FROM_YARD,
       notes: form.notes.trim(),
       status: "new",
       createdAt: new Date().toISOString(),
@@ -157,7 +157,7 @@ export function QuoteForm() {
           {subtotalKes > 0 ? (
             <p className="mt-2 border-t border-hivis-dark/30 pt-2 text-sm text-slab-700">
               Indicative list total {formatKes(subtotalKes)} before any bulk
-              adjustment or delivery.
+              adjustment. Collect from the yard.
             </p>
           ) : null}
           {evaluation.reasons.length > 0 ? (
@@ -212,19 +212,10 @@ export function QuoteForm() {
           error={errors.quantity}
           onChange={(event) => update("quantity", event.target.value)}
         />
-        <TextField
-          id="deliveryLocation"
-          label="Delivery location"
-          required
-          hint="Town or estate, plus a landmark. Delivery cost depends on distance."
-          value={form.deliveryLocation}
-          error={errors.deliveryLocation}
-          onChange={(event) => update("deliveryLocation", event.target.value)}
-        />
         <TextAreaField
           id="notes"
           label="Anything else?"
-          hint="Optional. Deadline, site access, whether you need offloading."
+          hint="Optional. Deadline, or when you plan to collect from the yard."
           value={form.notes}
           onChange={(event) => update("notes", event.target.value)}
         />

@@ -60,9 +60,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/Button";
 import { TextAreaField, TextField } from "@/components/Field";
+import {
+  EMPTY_PAYMENT,
+  PaymentChoice,
+  paymentBody,
+  paymentError as paymentChoiceError,
+  type PaymentValue,
+} from "@/components/PaymentChoice";
 import { Stepper } from "@/components/Stepper";
 import { WEEKDAY_SHORT, business, telHref } from "@/data/business";
-import { paymentConfig } from "@/data/config";
 import {
   flatVehicleRows,
   flatVehicles,
@@ -74,7 +80,6 @@ import { flatPrice, washPrice } from "@/lib/prices";
 import type {
   BookingVehicleId,
   FlatVehicleId,
-  PaymentStatus,
   PriceBook,
 } from "@/types";
 import {
@@ -90,7 +95,6 @@ import {
   toLines,
   withoutCovered,
 } from "@/lib/booking";
-import { processPayment } from "@/lib/payment";
 import type { Slot } from "@/lib/slots";
 import { getBookableDates, getDayHours, holdMinutesFor } from "@/lib/slots";
 import { compactErrors, phoneError, requiredText } from "@/lib/validate";
@@ -384,7 +388,8 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
     notes: "",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [paymentMethod, setPaymentMethod] = useState<PaymentStatus>("paid");
+  const [payment, setPayment] = useState<PaymentValue>(EMPTY_PAYMENT);
+  const [paymentFieldError, setPaymentFieldError] = useState<string | undefined>();
   const [submitting, setSubmitting] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
@@ -415,40 +420,20 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
     // written is what the totals were computed from.
     if (lines.length === 0) return;
 
+    /*
+      NO PAYMENT HAPPENS HERE. The mock "payment succeeded" step that used
+      to run first is gone. The customer pays on their own phone, by M-Pesa
+      or in cash at the bay, and this only records which — with the SMS
+      code for M-Pesa. The booking is written and the slot held straight
+      away; the confirmation page then says "Payment pending verification"
+      until staff have checked the code. See src/lib/payments.ts.
+    */
+    const choiceError = paymentChoiceError(payment);
+    setPaymentFieldError(choiceError);
+    if (choiceError) return;
+
     setSubmitting(true);
     setPaymentError(null);
-
-    /*
-      PAYMENT STILL RUNS FIRST, AND IT IS STILL A STUB.
-
-      `processPayment` waits 1.6s and reports success — no API is called and
-      no money moves (src/lib/payment.ts). Unchanged by this stage, and
-      deliberately: wiring a real aggregator is its own job. What HAS
-      changed is that a successful "payment" is now followed by a write to
-      a real database rather than to this browser, so the ordering matters
-      more than it used to. It is left as it was — pay, then write — and
-      the gap is called out where it lands: if the write below fails after
-      this returns success, the customer has "paid" for a booking that does
-      not exist. With a stubbed processor that is a demo artefact; with a
-      real one it is the thing to fix first, by taking payment only after
-      the slot is held.
-
-      No reference is minted here any more. The server decides it, because
-      the server is the only party that can check it is not already taken.
-    */
-    if (paymentMethod === "paid") {
-      const result = await processPayment({
-        amountKes: totalKes,
-        phone: form.phone,
-        // The booking has no reference yet. The stub only echoes this back.
-        reference: "pending",
-      });
-      if (!result.success) {
-        setPaymentError(result.message);
-        setSubmitting(false);
-        return;
-      }
-    }
 
     /*
       WHAT IS SENT: WHAT WAS CHOSEN, NOT WHAT IT COSTS.
@@ -477,13 +462,26 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
           phone: form.phone.trim(),
           vehicle: form.vehicle.trim(),
           notes: form.notes.trim(),
-          paymentStatus: paymentMethod,
+          payment: paymentBody(payment, "wash"),
         }),
       });
     } catch {
       setPaymentError(
         "We could not reach the booking system. Check your connection and try again.",
       );
+      setSubmitting(false);
+      return;
+    }
+
+    const failure =
+      response.ok
+        ? null
+        : ((await response.json().catch(() => ({}))) as { error?: string; detail?: string });
+
+    // The code is already on another payment. Stay on this step, on the
+    // code field, with the server's sentence.
+    if (failure?.error === "code_used") {
+      setPaymentFieldError(failure.detail ?? "This M-Pesa code has already been used.");
       setSubmitting(false);
       return;
     }
@@ -510,7 +508,9 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
         cause is in the server log, which is where it belongs.
       */
       setPaymentError(
-        "We could not save your booking. Nothing has been reserved — please try again.",
+        response.status === 400 && failure?.detail
+          ? failure.detail
+          : "We could not save your booking. Nothing has been reserved — please try again.",
       );
       setSubmitting(false);
       return;
@@ -558,7 +558,7 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
               </span>
               <span className="block text-base font-bold">Carpets &amp; sofa sets</span>
               <span className="block text-xs text-slab-600">
-                Drop-off or collection — no time slot needed.
+                Bring them to the yard — no time slot needed.
               </span>
             </span>
             <span aria-hidden="true" className="lift-nudge shrink-0 text-xl">
@@ -985,43 +985,18 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
             </dl>
           </div>
 
-          <fieldset className="mt-6">
-            <legend className="text-sm font-bold uppercase tracking-wide text-slab-700">
-              How would you like to pay?
-            </legend>
-            <div className="mt-3 flex flex-col gap-2">
-              {(
-                [
-                  ["paid", `Pay now - ${paymentConfig.aggregatorLabel}`],
-                  ["pay_on_collection", "Pay at the bay when you arrive"],
-                ] as const
-              ).map(([value, label]) => (
-                <label
-                  key={value}
-                  className={`flex min-h-12 cursor-pointer items-center gap-3 rounded-slab border-2 px-4 py-3 transition-colors duration-150 ease-plain ${
-                    paymentMethod === value
-                      ? "border-slab-900 bg-white"
-                      : "border-slab-200 bg-white hover:border-slab-500"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="paymentMethod"
-                    value={value}
-                    checked={paymentMethod === value}
-                    onChange={() => setPaymentMethod(value)}
-                    className="size-4 accent-hivis"
-                  />
-                  <span className="text-sm font-semibold">{label}</span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-
-          {/* Demo honesty: never let anyone think this took money. */}
-          <p className="mt-4 rounded-slab border-2 border-hivis bg-hivis-tint px-3 py-2 text-sm text-slab-800">
-            Demo only. No payment is processed and no M-Pesa prompt is sent.
-          </p>
+          <div className="mt-6">
+            <PaymentChoice
+              context="wash"
+              amountKes={totalKes}
+              value={payment}
+              onChange={(next) => {
+                setPayment(next);
+                setPaymentFieldError(undefined);
+              }}
+              error={paymentFieldError}
+            />
+          </div>
 
           {paymentError ? (
             <p
@@ -1042,11 +1017,7 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
               Back
             </Button>
             <Button size="lg" onClick={confirmBooking} disabled={submitting}>
-              {submitting
-                ? "Working..."
-                : paymentMethod === "paid"
-                  ? `Pay ${formatKes(totalKes)}`
-                  : "Confirm booking"}
+              {submitting ? "Working..." : "Confirm booking"}
             </Button>
           </div>
         </section>

@@ -62,14 +62,14 @@ export function evaluateCart(lines: CartLine[]): QuoteEvaluation {
   );
   for (const line of overQuantity) {
     reasons.push(
-      `${cartLineName(line)}: orders over ${quoteRules.maxUnitsPerLine} units are quoted so we can confirm production and delivery.`,
+      `${cartLineName(line)}: orders over ${quoteRules.maxUnitsPerLine} units are quoted so we can confirm production.`,
     );
   }
 
   const subtotal = cartSubtotal(lines);
   if (subtotal > quoteRules.maxOrderTotalKes) {
     reasons.push(
-      `Orders above ${formatKes(quoteRules.maxOrderTotalKes)} are quoted so we can confirm delivery cost before you pay.`,
+      `Orders above ${formatKes(quoteRules.maxOrderTotalKes)} are quoted so we can confirm the order before you pay.`,
     );
   }
 

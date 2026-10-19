@@ -212,7 +212,7 @@ export default async function PricesPage() {
                     href="/book/carpets"
                     className="font-bold underline underline-offset-4 hover:text-slab-900"
                   >
-                    Request a drop-off or collection
+                    Send a carpet or sofa request
                   </Link>
                 </p>
               ) : null}

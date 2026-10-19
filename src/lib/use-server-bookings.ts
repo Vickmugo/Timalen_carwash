@@ -131,6 +131,32 @@ export function useServerBookings(): ServerBookings {
  * src/lib/bookings-db.ts — so there is no path here that changes a status
  * without recording who changed it.
  */
+/**
+ * Moves a booking's JOB status (booked, in progress, done, cancelled, no
+ * show). Same shape as `patchBookingPayment` below: true if it landed.
+ */
+export async function patchBookingJob(
+  ref: string,
+  jobStatus: string,
+  by: string,
+): Promise<boolean> {
+  try {
+    const response = await fetch(`/api/bookings/${encodeURIComponent(ref)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobStatus, by }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * LEGACY BOOKINGS ONLY — those made before payments were recorded. The
+ * server refuses this for a booking with a payment record (409); its
+ * payment moves through the queues instead.
+ */
 export async function patchBookingPayment(
   ref: string,
   paymentStatus: string,

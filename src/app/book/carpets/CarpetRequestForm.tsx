@@ -6,8 +6,14 @@
  * ---------------------------------------------------------------------
  * Deliberately NOT the booking flow with the vehicle step removed. There
  * is no vehicle, so there is no plate; there is no bay time, so there is no
- * slot; nothing is charged, so there is no payment step. What is left is
- * one screen: the sizes, drop-off or collection, and a phone number.
+ * slot. What is left is
+ * one screen: the sizes, a phone number and how they will pay — M-Pesa to
+ * the wash till, or cash when they bring them in. M-Pesa is only offered
+ * when every picked size has a price; with an unpriced line (a sofa set
+ * while the board has no figure) there is nothing to send, so it is cash
+ * at the yard and the price is confirmed there. Everything is brought to the
+ * yard and collected from it — there is no collection service, so there
+ * is no address to ask for.
  *
  * PRICES ARE SHOWN, AND SAID TO BE AN ESTIMATE. The three carpet sizes have
  * board figures; the sofa set does not and reads "price on request". The
@@ -23,42 +29,52 @@
 import { useState } from "react";
 import { Button, ButtonLink } from "@/components/Button";
 import { TextAreaField, TextField } from "@/components/Field";
+import {
+  EMPTY_PAYMENT,
+  PaymentChoice,
+  paymentBody,
+  paymentError,
+  type PaymentValue,
+} from "@/components/PaymentChoice";
 import { business, telHref } from "@/data/business";
 import {
   CARPET_MAX_PER_ITEM,
   carpetEstimate,
+  carpetFullyPriced,
   carpetRows,
   type CarpetPick,
 } from "@/lib/carpet-request";
 import { formatKes } from "@/lib/format";
+import { receiptPath } from "@/lib/receipt";
 import { flatPrice } from "@/lib/prices";
 import { compactErrors, phoneError, requiredText } from "@/lib/validate";
 import type { PriceBook } from "@/types";
-
-type Handover = "dropoff" | "collect";
 
 export function CarpetRequestForm({ priceBook }: { priceBook: PriceBook }) {
   const rows = carpetRows();
 
   // Nothing preselected: a quantity of zero everywhere until they say.
   const [quantities, setQuantities] = useState<Record<string, number>>({});
-  // No default either way — a collection nobody asked for is a wasted trip.
-  const [handover, setHandover] = useState<Handover | null>(null);
   const [form, setForm] = useState({
     customerName: "",
     phone: "",
-    collectFrom: "",
     notes: "",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [sentRef, setSentRef] = useState<string | null>(null);
+  const [payment, setPayment] = useState<PaymentValue>(EMPTY_PAYMENT);
+  const [sent, setSent] = useState<{ ref: string; method: "mpesa" | "cash"; code: string } | null>(null);
 
   const picks: CarpetPick[] = rows
     .map((row) => ({ id: row.id, quantity: quantities[row.id] ?? 0 }))
     .filter((pick) => pick.quantity > 0);
   const { pricedKes, unpricedPieces } = carpetEstimate(priceBook, picks);
+  // M-Pesa needs a known total. Nothing picked yet counts as "not yet".
+  const mpesaAllowed = picks.length === 0 || carpetFullyPriced(priceBook, picks);
+  // A choice of M-Pesa made before an unpriced size was added is dropped.
+  const effectivePayment: PaymentValue =
+    !mpesaAllowed && payment.method === "mpesa" ? EMPTY_PAYMENT : payment;
 
   function setQuantity(id: string, next: number) {
     const bounded = Math.max(0, Math.min(CARPET_MAX_PER_ITEM, next));
@@ -83,13 +99,9 @@ export function CarpetRequestForm({ priceBook }: { priceBook: PriceBook }) {
   async function submit() {
     const found = compactErrors({
       items: picks.length === 0 ? "Pick at least one item." : undefined,
-      handover: handover ? undefined : "Say whether you will drop off or want collection.",
-      collectFrom:
-        handover === "collect"
-          ? requiredText(form.collectFrom, "Collection address")
-          : undefined,
       customerName: requiredText(form.customerName, "Name"),
       phone: phoneError(form.phone),
+      payment: paymentError(effectivePayment, mpesaAllowed),
     });
     setErrors(found);
     if (Object.keys(found).length > 0) return;
@@ -105,11 +117,10 @@ export function CarpetRequestForm({ priceBook }: { priceBook: PriceBook }) {
         // What was chosen, not what it costs: the server reads the board.
         body: JSON.stringify({
           items: picks,
-          handover,
-          collectFrom: form.collectFrom.trim(),
           customerName: form.customerName.trim(),
           phone: form.phone.trim(),
           notes: form.notes.trim(),
+          payment: paymentBody(effectivePayment, "carpet"),
         }),
       });
     } catch {
@@ -119,18 +130,38 @@ export function CarpetRequestForm({ priceBook }: { priceBook: PriceBook }) {
     }
 
     if (!response.ok) {
-      setSubmitError("We could not send your request. Nothing was saved — please try again.");
+      const failure = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        detail?: string;
+      };
+      if (failure.error === "code_used") {
+        setErrors((current) => ({
+          ...current,
+          payment: failure.detail ?? "This M-Pesa code has already been used.",
+        }));
+      } else {
+        setSubmitError(
+          response.status === 400 && failure.detail
+            ? failure.detail
+            : "We could not send your request. Nothing was saved — please try again.",
+        );
+      }
       setSubmitting(false);
       return;
     }
 
     const { ref } = (await response.json()) as { ref: string };
-    setSentRef(ref);
+    setSent({
+      ref,
+      method: effectivePayment.method === "mpesa" ? "mpesa" : "cash",
+      code: paymentBody(effectivePayment, "carpet").mpesaCode ?? "",
+    });
     setSubmitting(false);
   }
 
   /* ---------------------------- sent ---------------------------- */
-  if (sentRef) {
+  if (sent) {
+    const sentRef = sent.ref;
     return (
       <section className="mt-8 rounded-slab border-2 border-slab-900 bg-white" aria-live="polite">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-slab-900 bg-slab-900 px-4 py-3 text-slab-50">
@@ -141,9 +172,30 @@ export function CarpetRequestForm({ priceBook }: { priceBook: PriceBook }) {
         </div>
         <div className="px-4 py-4 text-sm text-slab-700">
           <p>
-            We will call {form.phone.trim()} to arrange{" "}
-            {handover === "collect" ? "a collection" : "when to bring them in"}.
+            Bring your carpets or sofa set to the yard at {business.location}.
+            We will call {form.phone.trim()} when they are ready to collect.
             Keep the reference handy in case you call us first.
+          </p>
+          {/*
+            No receipt number and no "Paid" here: a code is checked against
+            the statement first. The receipt link works once it has been,
+            and says "no receipt yet" until then.
+          */}
+          <p className="mt-3 rounded-slab border-2 border-hivis bg-hivis-tint px-3 py-2 font-semibold text-slab-800">
+            {sent.method === "mpesa"
+              ? `Payment pending verification. We will check M-Pesa code ${sent.code} against our statement; your receipt is issued once it is confirmed.`
+              : unpricedPieces > 0
+                ? "Pay cash at the yard when you bring them in. The price for items without a listed price is confirmed at the yard."
+                : `Pay cash at the yard when you bring them in: ${formatKes(pricedKes)}.`}
+          </p>
+          <p className="mt-2">
+            <a
+              href={receiptPath("carpet", sentRef)}
+              className="font-semibold underline underline-offset-4"
+            >
+              Your receipt
+            </a>{" "}
+            <span className="text-slab-500">(available once payment is confirmed)</span>
           </p>
           <ul className="mt-3 divide-y-2 divide-slab-100 border-y-2 border-slab-100">
             {picks.map((pick) => {
@@ -264,67 +316,27 @@ export function CarpetRequestForm({ priceBook }: { priceBook: PriceBook }) {
         ) : null}
       </section>
 
-      <section className="mt-8" aria-labelledby="carpet-handover">
-        <h2 id="carpet-handover" className="text-xl">
-          How will they reach us?
+      <section
+        className="mt-8 rounded-slab border-2 border-slab-200 bg-white px-4 py-3"
+        aria-labelledby="carpet-handover"
+      >
+        <h2 id="carpet-handover" className="text-base">
+          Bring them to the yard
         </h2>
-        <fieldset className="mt-3">
-          <legend className="sr-only">Drop-off or collection</legend>
-          <div className="flex flex-col gap-2">
-            {(
-              [
-                ["dropoff", "I will drop them off at the yard"],
-                ["collect", "Please collect them from me"],
-              ] as const
-            ).map(([value, label]) => (
-              <label
-                key={value}
-                className={`flex min-h-12 cursor-pointer items-center gap-3 rounded-slab border-2 bg-white px-4 py-3 transition-colors duration-150 ease-plain ${
-                  handover === value ? "border-slab-900" : "border-slab-200 hover:border-slab-500"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="handover"
-                  value={value}
-                  checked={handover === value}
-                  onChange={() => {
-                    setHandover(value);
-                    clearError("handover");
-                  }}
-                  className="size-4 accent-hivis"
-                />
-                <span className="text-sm font-semibold">{label}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-        {errors.handover ? (
-          <p role="alert" className="mt-3 text-sm font-semibold text-alert">
-            {errors.handover}
-          </p>
-        ) : null}
-
-        {handover === "collect" ? (
-          <div className="mt-4">
-            <TextField
-              id="collectFrom"
-              label="Where should we collect from?"
-              required
-              hint="Estate, street or a landmark we can find."
-              value={form.collectFrom}
-              error={errors.collectFrom}
-              onChange={(event) => update("collectFrom", event.target.value)}
-            />
-          </div>
-        ) : null}
+        <p className="mt-1 text-sm text-slab-700">
+          Bring your carpets or sofa set to the yard at {business.location}, and
+          we will tell you when they are ready to collect. We do not collect or
+          deliver.
+        </p>
       </section>
 
       <section className="mt-8" aria-labelledby="carpet-details">
         <h2 id="carpet-details" className="text-xl">
           Your details
         </h2>
-        <p className="mt-1 text-sm text-slab-600">We call this number to arrange the day.</p>
+        <p className="mt-1 text-sm text-slab-600">
+          We call this number when they are ready to collect.
+        </p>
         <div className="mt-5 flex flex-col gap-5">
           <TextField
             id="customerName"
@@ -355,6 +367,21 @@ export function CarpetRequestForm({ priceBook }: { priceBook: PriceBook }) {
             onChange={(event) => update("notes", event.target.value)}
           />
         </div>
+      </section>
+
+      <section className="mt-8" aria-label="Payment">
+        <PaymentChoice
+          context="carpet"
+          amountKes={mpesaAllowed ? pricedKes : null}
+          value={effectivePayment}
+          onChange={(next) => {
+            setPayment(next);
+            clearError("payment");
+          }}
+          error={errors.payment}
+          mpesaAllowed={mpesaAllowed}
+          cashOnlyReason="Some of what you picked has no listed price yet, so it is paid at the yard and the price is confirmed there."
+        />
       </section>
 
       {submitError ? (

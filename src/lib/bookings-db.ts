@@ -49,10 +49,18 @@
 import { BUSINESS_ID, getSupabaseServiceRoleClient } from "@/lib/supabase";
 import { makeRef } from "@/lib/format";
 import { UNATTRIBUTED } from "@/data/admin-users";
+import {
+  PAYMENT_EMBED,
+  insertPayment,
+  latestPayment,
+  type PaymentRow,
+} from "@/lib/payments-db";
+import type { PaymentChoice } from "@/lib/payments";
 import type {
   Booking,
   BookingLine,
   BookingVehicleId,
+  JobStatus,
   PaymentStatus,
   StatusChange,
 } from "@/types";
@@ -91,9 +99,11 @@ interface BookingRow {
   vehicle: string;
   notes: string;
   payment_status: PaymentStatus;
+  job_status: JobStatus;
   created_at: string;
   booking_lines?: BookingLineRow[] | null;
   status_changes?: StatusChangeRow[] | null;
+  payments?: PaymentRow[] | null;
 }
 
 /**
@@ -108,9 +118,10 @@ interface BookingRow {
 const BOOKING_SELECT =
   "id, ref, vehicle_type_id, vehicle_type_name, service_id, service_name, " +
   "price_kes, duration_minutes, booking_date, start_time, end_time, " +
-  "customer_name, phone, vehicle, notes, payment_status, created_at, " +
+  "customer_name, phone, vehicle, notes, payment_status, job_status, created_at, " +
   "booking_lines(service_id, name, price_kes, position), " +
-  "status_changes(to_status, changed_by, changed_at)";
+  "status_changes(to_status, changed_by, changed_at), " +
+  PAYMENT_EMBED;
 
 /* ------------------------------------------------------------------ */
 /* Mapping                                                             */
@@ -219,6 +230,10 @@ export function toBooking(row: BookingRow): Booking {
     vehicle: row.vehicle,
     notes: row.notes,
     paymentStatus: row.payment_status,
+    jobStatus: row.job_status,
+    ...(row.payments && row.payments.length > 0
+      ? { payment: latestPayment(row.payments) }
+      : {}),
     createdAt: toIso(row.created_at),
     // Absent rather than empty, matching how the field reads elsewhere:
     // "nobody has touched this" is the ordinary case, not a missing value.
@@ -247,7 +262,12 @@ export interface NewBookingInput {
   phone: string;
   vehicle: string;
   notes: string;
-  paymentStatus: PaymentStatus;
+  /**
+   * How the customer says they will pay. Checked by `parsePaymentChoice`
+   * in the route; the payment row's status and amount are decided here,
+   * not by the browser.
+   */
+  payment: PaymentChoice;
 }
 
 /**
@@ -273,6 +293,7 @@ const UNIQUE_VIOLATION = "23505";
 export type CreateBookingResult =
   | { ok: true; booking: Booking }
   | { ok: false; reason: "slot_taken" }
+  | { ok: false; reason: "code_used" }
   | { ok: false; reason: "ref_exhausted" }
   | { ok: false; reason: "db_error"; detail: string; code: string | null };
 
@@ -317,6 +338,8 @@ export async function createBooking(
     .select("ref, start_time, end_time")
     .eq("business_id", BUSINESS_ID)
     .eq("booking_date", input.date)
+    // A cancelled booking no longer holds the bay.
+    .neq("job_status", "cancelled")
     // Overlap, in the same form src/lib/slots.ts uses: two intervals
     // overlap when each starts before the other ends.
     .lt("start_time", input.endTime)
@@ -354,7 +377,14 @@ export async function createBooking(
         phone: input.phone,
         vehicle: input.vehicle,
         notes: input.notes,
-        payment_status: input.paymentStatus,
+        /*
+          The old column, kept in step with the payment for the screens
+          that still read it: nothing has been paid on a claim, and cash
+          is an arrangement to pay at the bay. `resolve_payment()` moves it
+          to 'paid' when staff confirm the money.
+        */
+        payment_status:
+          input.payment.method === "cash" ? "pay_on_collection" : "unpaid",
       })
       .select("id")
       .single();
@@ -396,6 +426,28 @@ export async function createBooking(
           code: lines.error.code ?? null,
         };
       }
+    }
+
+    /*
+      THE PAYMENT, CLAIMED OR CASH DUE, AT THE PRICE COMPUTED BY THE ROUTE.
+
+      Same compensation as the lines: if it cannot be written, the booking
+      goes too. A held slot with no payment record would sit in the diary
+      looking unpaid with nothing for staff to verify. The likeliest
+      failure is the code-uniqueness index — the route checks first, but
+      two phones can race — and that comes back as its own reason so the
+      customer is told the code is taken, not that the system failed.
+    */
+    const paid = await insertPayment(
+      { bookingId },
+      "wash",
+      input.payment,
+      input.priceKes,
+    );
+    if (!paid.ok) {
+      await db.from("bookings").delete().eq("id", bookingId);
+      if (paid.reason === "code_used") return { ok: false, reason: "code_used" };
+      return { ok: false, reason: "db_error", detail: paid.detail, code: null };
     }
 
     // Read the whole thing back rather than assembling it from the input.
@@ -485,7 +537,10 @@ export async function getBookedIntervals(date: string): Promise<Booking[]> {
     .from("bookings")
     .select("booking_date, start_time, end_time")
     .eq("business_id", BUSINESS_ID)
-    .eq("booking_date", date);
+    .eq("booking_date", date)
+    // Cancelled bookings release their slot; see `job_status` in the
+    // payments migration.
+    .neq("job_status", "cancelled");
 
   if (error) throw new Error(`getBookedIntervals: ${error.message}`);
 
@@ -512,6 +567,7 @@ export async function getBookedIntervals(date: string): Promise<Booking[]> {
 export type UpdatePaymentResult =
   | { ok: true; booking: Booking }
   | { ok: false; reason: "not_found" }
+  | { ok: false; reason: "has_payment" }
   | { ok: false; reason: "db_error"; detail: string };
 
 /**
@@ -540,6 +596,28 @@ export async function updateBookingPayment(
 ): Promise<UpdatePaymentResult> {
   const db = getSupabaseServiceRoleClient();
 
+  /*
+    LEGACY BOOKINGS ONLY. A booking with a row in `payments` has its
+    payment status moved by `resolve_payment()` — verify, reject, cash
+    received — which issues the receipt in the same transaction. Setting
+    'paid' here instead would mark it paid with no receipt and no check of
+    the code, so it is refused. This path remains for bookings made before
+    payments were recorded, which have nothing else.
+  */
+  const existing = await db
+    .from("bookings")
+    .select("id, payments(id)")
+    .eq("business_id", BUSINESS_ID)
+    .eq("ref", ref)
+    .maybeSingle();
+  if (existing.error) {
+    return { ok: false, reason: "db_error", detail: existing.error.message };
+  }
+  if (!existing.data) return { ok: false, reason: "not_found" };
+  if (((existing.data.payments as unknown[] | null) ?? []).length > 0) {
+    return { ok: false, reason: "has_payment" };
+  }
+
   const updated = await db
     .from("bookings")
     .update({ payment_status: paymentStatus })
@@ -561,6 +639,64 @@ export async function updateBookingPayment(
     changed_by: by.trim() || UNATTRIBUTED,
   });
 
+  if (history.error) {
+    return { ok: false, reason: "db_error", detail: history.error.message };
+  }
+
+  const booking = await getBookingByRef(ref);
+  if (!booking) return { ok: false, reason: "not_found" };
+  return { ok: true, booking };
+}
+
+export const JOB_STATUSES: JobStatus[] = [
+  "booked",
+  "in_progress",
+  "done",
+  "cancelled",
+  "no_show",
+];
+
+export type UpdateJobResult =
+  | { ok: true; booking: Booking }
+  | { ok: false; reason: "not_found" }
+  | { ok: false; reason: "db_error"; detail: string };
+
+/**
+ * Moves the WORK on a booking — booked, in progress, done, cancelled, no
+ * show — and records who said so in `status_changes`, exactly as the
+ * payment status writer does. Same two-writes caveat as
+ * `updateBookingPayment` above.
+ *
+ * Deliberately separate from payment: finishing a wash says nothing about
+ * whether it was paid for. Any move is allowed, including back to
+ * `booked` — staff correct mistakes, and the log keeps every step.
+ * Cancelling releases the slot (the slot checks skip cancelled bookings).
+ */
+export async function updateBookingJobStatus(
+  ref: string,
+  jobStatus: JobStatus,
+  by: string,
+): Promise<UpdateJobResult> {
+  const db = getSupabaseServiceRoleClient();
+
+  const updated = await db
+    .from("bookings")
+    .update({ job_status: jobStatus })
+    .eq("business_id", BUSINESS_ID)
+    .eq("ref", ref)
+    .select("id")
+    .maybeSingle();
+
+  if (updated.error) {
+    return { ok: false, reason: "db_error", detail: updated.error.message };
+  }
+  if (!updated.data) return { ok: false, reason: "not_found" };
+
+  const history = await db.from("status_changes").insert({
+    booking_id: updated.data.id as string,
+    to_status: jobStatus,
+    changed_by: by.trim() || UNATTRIBUTED,
+  });
   if (history.error) {
     return { ok: false, reason: "db_error", detail: history.error.message };
   }

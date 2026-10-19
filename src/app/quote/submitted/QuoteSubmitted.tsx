@@ -65,7 +65,7 @@ export function QuoteSubmitted() {
           {[
             ["What you need", quote.item],
             ["Quantity", quote.quantity],
-            ["Deliver to", quote.deliveryLocation],
+            ["Collection", quote.deliveryLocation],
             ["Name", quote.customerName],
             ["Phone", quote.phone],
             ...(quote.notes ? [["Notes", quote.notes]] : []),

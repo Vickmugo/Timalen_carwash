@@ -1,27 +1,29 @@
-"use client";
-
-import { useSearchParams } from "next/navigation";
-import { PaymentBadge } from "@/components/Badge";
 import { ButtonLink } from "@/components/Button";
+import { PaymentStatusNotice } from "@/components/PaymentStatusNotice";
 import { business } from "@/data/business";
 import { cartLineKey, cartLineName } from "@/lib/cart-line";
 import { formatKes } from "@/lib/format";
 import { receiptPath } from "@/lib/receipt";
-import { useIsHydrated, useOrders } from "@/lib/store";
+import type { Order } from "@/types";
 
-export function OrderConfirmation() {
-  const ref = useSearchParams().get("ref");
-  const hydrated = useIsHydrated();
-  const order = useOrders().find((entry) => entry.ref === ref);
-
-  if (!hydrated) return <p className="text-slab-500">Loading your order...</p>;
-
+/**
+ * PRESENTATION ONLY, like the booking confirmation. The order is fetched
+ * by the server component in page.tsx, from the database, so this works
+ * on any device holding the link and shows what the server stored — its
+ * own prices and total, not the basket's.
+ *
+ * An order placed before the checkout moved to the server is not in the
+ * database and lands on "not found". Those records are still in the
+ * browser that placed them; nothing deletes them.
+ */
+export function OrderConfirmation({ order }: { order: Order | null }) {
   if (!order) {
     return (
       <div className="rounded-slab border-2 border-slab-200 bg-white p-6">
         <h1 className="text-2xl">Order not found</h1>
         <p className="mt-2 text-slab-600">
-          We could not find an order with that reference on this device.
+          We could not find an order with that reference. Check the link, or
+          call the yard on {business.phone}.
         </p>
         <ButtonLink href="/products" className="mt-5">
           Browse products
@@ -51,8 +53,9 @@ export function OrderConfirmation() {
       </div>
 
       <p className="mt-3 text-slab-600">
-        The yard will call {order.phone} to confirm delivery or collection. Made
-        to order items are cast after that call.
+        Collect from the yard at {business.location}. The yard will call{" "}
+        {order.phone} when it is ready. Made to order items are cast after that
+        call.
       </p>
 
       <div className="mt-6 rounded-slab border-2 border-slab-900 bg-white">
@@ -86,7 +89,7 @@ export function OrderConfirmation() {
           {[
             ["Name", order.customerName],
             ["Phone", order.phone],
-            ["Deliver to", order.deliveryLocation],
+            ["Collection", order.deliveryLocation],
             ...(order.notes ? [["Notes", order.notes]] : []),
           ].map(([label, value]) => (
             <div
@@ -103,24 +106,21 @@ export function OrderConfirmation() {
             <dt className="text-sm font-bold uppercase tracking-wide text-slab-700">
               Total
             </dt>
-            <dd className="flex items-center gap-2 text-lg font-extrabold">
-              {formatKes(order.subtotalKes)}
-              <PaymentBadge status={order.paymentStatus} />
-            </dd>
+            <dd className="text-lg font-extrabold">{formatKes(order.subtotalKes)}</dd>
           </div>
         </dl>
       </div>
 
-      <p className="mt-4 rounded-slab border-2 border-hivis bg-hivis-tint px-3 py-2 text-sm text-slab-800">
-        Demo only. No payment was taken and nothing has been sent to{" "}
-        {business.name}.
-      </p>
+      <div className="mt-4">
+        <PaymentStatusNotice
+          payment={order.payment}
+          legacyStatus={order.paymentStatus}
+          context="concrete"
+          receiptHref={receiptPath("order", order.ref)}
+        />
+      </div>
 
       <div className="mt-6 flex flex-wrap gap-3">
-        {/* See the note on the booking confirmation: offered at any status. */}
-        <ButtonLink href={receiptPath("order", order.ref)}>
-          View / print receipt
-        </ButtonLink>
         <ButtonLink href="/products" variant="outline">
           Keep browsing
         </ButtonLink>

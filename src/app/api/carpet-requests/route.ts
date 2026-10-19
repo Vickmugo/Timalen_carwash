@@ -2,8 +2,12 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import {
   CARPET_MAX_PER_ITEM,
+  CARPET_HANDOVER_TEXT,
   CARPET_REF_PREFIX,
+  carpetEstimate,
+  carpetFullyPriced,
   carpetItemText,
+  carpetPricedLines,
   carpetQuantityText,
   carpetRows,
   type CarpetPick,
@@ -12,17 +16,29 @@ import { readPriceBook } from "@/lib/prices-db";
 import { createQuoteRequest, listQuoteRequests } from "@/lib/quote-requests-db";
 import { isStaffRequest } from "@/lib/staff-guard";
 import { isValidKenyanPhone } from "@/lib/validate";
+import { CODE_ALREADY_USED, parsePaymentChoice } from "@/lib/payments";
+import { insertPayment, isCodeInUse } from "@/lib/payments-db";
+import { getSupabaseServiceRoleClient } from "@/lib/supabase";
 
 /**
  * =====================================================================
- * /api/carpet-requests — carpets and sofa sets, dropped off or collected.
+ * /api/carpet-requests — carpets and sofa sets, brought to the yard.
  * ---------------------------------------------------------------------
  *   POST  one request. Public — this is the customer's form.
  *   GET   every carpet request. STAFF ONLY: names and phone numbers.
  *
- * NO SLOT, NO VEHICLE, NO PAYMENT. A carpet does not occupy the wash bay
+ * NO SLOT, NO VEHICLE. A carpet does not occupy the wash bay
  * for a window of time, so this never reads or writes a booking. The
- * request says what is coming and how; staff ring back to arrange when.
+ * customer brings everything to the yard and collects it from there —
+ * there is no collection service, so no address is asked for or stored.
+ * Staff ring when the work is ready.
+ *
+ * PAYMENT: M-Pesa to the wash till, or cash at the yard, recorded as a
+ * `payments` row against the request (stream `wash`, receipt series W).
+ * M-Pesa is accepted only when every line has a price on the board; with
+ * an unpriced line (a sofa set while it has no figure) there is no amount
+ * to pay against, so only cash is accepted and the price is confirmed at
+ * the yard. The expected amount is the server's sum of the priced lines.
  *
  * Stored in `quote_requests` — see src/lib/quote-requests-db.ts for why
  * that table, and why header rows only.
@@ -68,9 +84,8 @@ export async function POST(request: NextRequest) {
     items?: unknown;
     customerName?: unknown;
     phone?: unknown;
-    handover?: unknown;
-    collectFrom?: unknown;
     notes?: unknown;
+    payment?: unknown;
   };
   try {
     body = (await request.json()) as typeof body;
@@ -114,10 +129,9 @@ export async function POST(request: NextRequest) {
   const order = carpetRows().map((row) => row.id);
   picks.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
 
-  /* ---- who, and how it reaches the yard ---- */
+  /* ---- who ---- */
   const customerName = asText(body.customerName);
   const phone = asText(body.phone);
-  const collectFrom = asText(body.collectFrom);
   const notes = asText(body.notes);
 
   if (!customerName) {
@@ -125,18 +139,6 @@ export async function POST(request: NextRequest) {
   }
   if (!isValidKenyanPhone(phone)) {
     return json({ error: "bad_request", detail: "That phone number is not valid." }, 400);
-  }
-  if (body.handover !== "dropoff" && body.handover !== "collect") {
-    return json(
-      { error: "bad_request", detail: "Say whether you will drop off or want collection." },
-      400,
-    );
-  }
-  if (body.handover === "collect" && !collectFrom) {
-    return json(
-      { error: "bad_request", detail: "Say where we should collect from." },
-      400,
-    );
   }
 
   /*
@@ -150,6 +152,31 @@ export async function POST(request: NextRequest) {
   const { book, unavailable } = await readPriceBook();
   const pricesRead = !unavailable.includes("flat");
 
+  /*
+    M-PESA NEEDS A KNOWN TOTAL. If the board could not be read, or any line
+    has no figure, the only accepted choice is cash at the yard. The amount
+    recorded is the server's own sum of the priced lines — zero when the
+    board is unreadable — and staff take the real figure at the counter.
+  */
+  const mpesaAllowed = pricesRead && carpetFullyPriced(book, picks);
+  const parsedPayment = parsePaymentChoice(body.payment, "wash", mpesaAllowed);
+  if (!parsedPayment.ok) {
+    return json({ error: "bad_request", detail: parsedPayment.detail }, 400);
+  }
+  const payment = parsedPayment.choice;
+  const amountKes = pricesRead ? carpetEstimate(book, picks).pricedKes : 0;
+
+  if (payment.mpesaCode) {
+    try {
+      if (await isCodeInUse(payment.mpesaCode)) {
+        return json({ error: "code_used", detail: CODE_ALREADY_USED }, 409);
+      }
+    } catch (error) {
+      console.error("[api/carpet-requests] code check failed:", error);
+      return json({ error: "read_failed" }, 503);
+    }
+  }
+
   try {
     const result = await createQuoteRequest({
       refPrefix: CARPET_REF_PREFIX,
@@ -157,14 +184,36 @@ export async function POST(request: NextRequest) {
       phone,
       item: carpetItemText(book, picks, pricesRead),
       quantity: carpetQuantityText(picks),
-      deliveryLocation:
-        body.handover === "collect"
-          ? `Collect from: ${collectFrom}`
-          : "Drop-off at the yard",
+      // Always the same now: everything is brought in and collected from
+      // the yard. Older CP- rows still carry "Collect from: ..." or
+      // "Drop-off at the yard" and the staff list shows them as stored.
+      deliveryLocation: CARPET_HANDOVER_TEXT,
       notes,
+      pricedLines: pricesRead ? carpetPricedLines(book, picks) : [],
     });
 
-    if (result.ok) return json({ ref: result.ref }, 201);
+    if (result.ok) {
+      const paid = await insertPayment(
+        { quoteRequestId: result.id },
+        "wash",
+        payment,
+        amountKes,
+      );
+      if (!paid.ok) {
+        // Compensating delete, as for bookings: a request with no payment
+        // record would sit in the list with nothing for staff to check.
+        await getSupabaseServiceRoleClient()
+          .from("quote_requests")
+          .delete()
+          .eq("id", result.id);
+        if (paid.reason === "code_used") {
+          return json({ error: "code_used", detail: CODE_ALREADY_USED }, 409);
+        }
+        console.error(`[api/carpet-requests] payment write failed: ${paid.detail}`);
+        return json({ error: "write_failed" }, 503);
+      }
+      return json({ ref: result.ref, amountKes, method: payment.method }, 201);
+    }
 
     console.error(
       `[api/carpet-requests] write failed: ${

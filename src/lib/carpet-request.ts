@@ -8,8 +8,8 @@
  * book, so the two cannot describe the same request differently.
  *
  * NOT A BOOKING. A carpet does not occupy the bay for a slot, so nothing
- * here touches src/lib/slots.ts. The customer says what they have and how
- * it reaches the yard; staff call back to arrange the day.
+ * here touches src/lib/slots.ts. The customer says what they have, brings
+ * it to the yard, and staff call when it is ready to collect.
  *
  * THE SIZES ARE THE BOARD'S. They are the rows of the "carpets" group in
  * src/data/services.ts, priced in `flat_prices` like the rest of the board.
@@ -32,6 +32,14 @@ const CARPET_GROUP_ID = "carpets";
  * request that does is better as a phone call.
  */
 export const CARPET_MAX_PER_ITEM = 20;
+
+/**
+ * What every new request stores in `quote_requests.delivery_location`.
+ * Nothing is collected from or delivered to a customer; the column is NOT
+ * NULL and old rows hold the hand-over the customer chose back when there
+ * was a choice, so it is written rather than left blank.
+ */
+export const CARPET_HANDOVER_TEXT = "Brought to the yard by the customer";
 
 /** Prefix on the reference, e.g. CP-4K9T2X. See quote-requests-db.ts. */
 export const CARPET_REF_PREFIX = "CP";
@@ -92,6 +100,29 @@ export function carpetItemText(
       return `Carpets — ${name} x ${pick.quantity} (${priced})`;
     })
     .join("\n");
+}
+
+/**
+ * True when every picked line has a figure on the board. M-Pesa is only
+ * offered then: with a sofa set unpriced there is no amount to send, so the
+ * request is paid at the yard once the price is confirmed there.
+ */
+export function carpetFullyPriced(book: PriceBook, picks: CarpetPick[]): boolean {
+  return picks.length > 0 && picks.every((pick) => flatPrice(book, pick.id) !== null);
+}
+
+/** The picks with names and figures, as stored in `priced_lines`. */
+export function carpetPricedLines(
+  book: PriceBook,
+  picks: CarpetPick[],
+): { id: string; name: string; quantity: number; priceKes: number | null }[] {
+  const rows = carpetRows();
+  return picks.map((pick) => ({
+    id: pick.id,
+    name: rows.find((row) => row.id === pick.id)?.name ?? pick.id,
+    quantity: pick.quantity,
+    priceKes: flatPrice(book, pick.id),
+  }));
 }
 
 /** "3 pieces" — stored in `quote_requests.quantity`, which is free text. */

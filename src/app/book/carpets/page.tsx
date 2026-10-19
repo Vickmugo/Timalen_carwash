@@ -6,12 +6,12 @@ import { CarpetRequestForm } from "./CarpetRequestForm";
 export const metadata: Metadata = {
   title: "Carpet and sofa cleaning",
   description:
-    "Send carpets or a sofa set to the wash bay. Pick the sizes, say whether you will drop them off or want them collected, and we will call to arrange a day.",
+    "Carpets and sofa sets cleaned at the yard. Pick the sizes, bring them in, and we will tell you when they are ready to collect.",
   alternates: { canonical: "/book/carpets" },
   openGraph: {
     title: "Carpet and sofa cleaning",
     description:
-      "Carpets by size and sofa sets. Drop off at the yard or ask us to collect — we call to arrange the day.",
+      "Carpets by size and sofa sets. Bring them to the yard and we will tell you when they are ready to collect.",
     url: "/book/carpets",
   },
 };
@@ -40,9 +40,9 @@ export default async function CarpetsPage() {
         backLabel="Book a wash"
         intro={
           <p>
-            Tell us what needs cleaning and whether you will bring it to the
-            yard or want it collected. There is no time slot to pick — we call
-            you to arrange the day. Nothing is paid here.
+            Tell us what needs cleaning, then bring your carpets or sofa set to
+            the yard. There is no time slot to pick — we will tell you when
+            they are ready to collect.
           </p>
         }
       />

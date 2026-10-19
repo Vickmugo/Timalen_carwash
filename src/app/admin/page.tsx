@@ -68,20 +68,28 @@ import { Button } from "@/components/Button";
 import { PageHeader } from "@/components/PageHeader";
 import { adminUsers, UNATTRIBUTED } from "@/data/admin-users";
 import { CarpetRequests } from "./CarpetRequests";
+import { PaymentCell } from "./PaymentCell";
+import { CashDue, PaymentsToVerify } from "./PaymentQueues";
 import { PriceEditor } from "./PriceEditor";
+import { ReceiptsLedger } from "./ReceiptsLedger";
 import { productCategories } from "@/data/products";
 import type {
   Booking,
   ChangeRequest,
   ChangeRequestKind,
   ChangeRequestStatus,
+  JobStatus,
   Order,
   PaymentStatus,
   ProductCategoryId,
   QuoteRequest,
   QuoteStatus,
+  ReceiptRecord,
   StatusChange,
 } from "@/types";
+import type { QueuedPayment } from "@/lib/payments-db";
+import { isSettled } from "@/lib/payments";
+import { useStaffList } from "@/lib/use-staff-list";
 import {
   NOT_LIVE_BANNER,
   NOT_LIVE_CARD,
@@ -106,22 +114,20 @@ import {
   bookingVehicleTypeName,
 } from "@/lib/booking";
 import { cartLineKey, cartLineName } from "@/lib/cart-line";
-import { canIssueReceipt, receiptPath } from "@/lib/receipt";
 import {
   addChangeRequest,
   clearAll,
   getActingAs,
   setActingAs,
   updateChangeRequestStatus,
-  updateOrderPayment,
   updateQuoteStatus,
   useActingAs,
   useChangeRequests,
   useIsHydrated,
-  useOrders,
   useQuotes,
 } from "@/lib/store";
 import {
+  patchBookingJob,
   patchBookingPayment,
   useServerBookings,
 } from "@/lib/use-server-bookings";
@@ -145,6 +151,42 @@ const PAYMENT_STATUSES: PaymentStatus[] = [
   "pay_on_collection",
   "paid",
 ];
+
+/**
+ * The work on a booking, in the order it normally goes. Separate from the
+ * money: see `JobStatus` in src/types/index.ts.
+ */
+const JOB_STATUSES: JobStatus[] = ["booked", "in_progress", "done", "cancelled", "no_show"];
+
+/**
+ * The bookings filter: each job status, plus the one question the yard
+ * actually needs answered at the end of the day — which washes are finished
+ * and still not paid for.
+ */
+type BookingFilter = JobStatus | "done_not_paid";
+const BOOKING_FILTERS: BookingFilter[] = [...JOB_STATUSES, "done_not_paid"];
+
+function bookingFilterLabel(filter: BookingFilter): string {
+  return filter === "done_not_paid" ? "Done, not paid" : jobLabel(filter);
+}
+
+function jobLabel(status: JobStatus): string {
+  return status === "no_show" ? "No-show" : statusWords(status).replace(/^./, (c) => c.toUpperCase());
+}
+
+/**
+ * Money confirmed for this booking? A booking with a payment record is
+ * paid when staff verified the code or took the cash. One made before
+ * payments were recorded falls back to its hand-set status.
+ */
+function bookingIsPaid(booking: Booking): boolean {
+  return booking.payment ? isSettled(booking.payment.status) : booking.paymentStatus === "paid";
+}
+
+function matchesBookingFilter(booking: Booking, filter: BookingFilter): boolean {
+  const job = booking.jobStatus ?? "booked";
+  return filter === "done_not_paid" ? job === "done" && !bookingIsPaid(booking) : job === filter;
+}
 
 /** "pay_on_collection" -> "pay on collection". Stored values are raw. */
 function statusWords(status: string): string {
@@ -521,8 +563,9 @@ function AboutPanel() {
     <div className="mt-4 rounded-slab border-2 border-slab-300 bg-white">
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
         <p className="max-w-prose text-sm text-slab-600">
-          Signed in with the shared staff password. Records live in this
-          browser only.
+          Signed in with the shared staff password. Bookings, orders, carpet
+          requests, payments and receipts are on the server; quote and change
+          requests are still in this browser.
         </p>
         <SignOutButton />
       </div>
@@ -549,9 +592,10 @@ function AboutPanel() {
           <code className="font-mono">src/proxy.ts</code>.
         </p>
         <p className="mt-2 max-w-prose text-sm text-slab-700">
-          Demo records are stored in this browser only. They will not appear
-          on another device, another browser on this device, or for a
-          colleague — and clearing site data erases them.
+          Quote requests and change requests are still stored in this browser
+          only. They will not appear on another device or for a colleague, and
+          clearing site data erases them. Everything else on this page is
+          read from the server.
         </p>
       </details>
     </div>
@@ -716,27 +760,12 @@ function StatusSelect<T extends string>({
  * expanded quote — to a document they will close in ten seconds is a poor
  * trade.
  */
-function ReceiptLink({
-  kind,
-  reference,
-  status,
-}: {
-  kind: "booking" | "order";
-  reference: string;
-  status: PaymentStatus;
-}) {
-  if (!canIssueReceipt(status)) return null;
-  return (
-    <Link
-      href={receiptPath(kind, reference)}
-      target="_blank"
-      rel="noopener"
-      className="whitespace-nowrap text-xs font-bold uppercase tracking-wide text-slab-600 underline underline-offset-4 hover:text-slab-900"
-    >
-      Receipt
-    </Link>
-  );
-}
+/*
+  THE OLD RECEIPT LINK IS GONE. It appeared whenever a status select said
+  "paid", which anybody could set. A receipt now exists only when the
+  database has issued one, and its number links to it from the payment
+  cell (./PaymentCell.tsx).
+*/
 
 function whoLabel(by: string): string {
   // "Changed by unattributed" reads like a name. Say what actually happened.
@@ -807,8 +836,39 @@ export default function AdminPage() {
     refresh: refreshBookings,
   } = useServerBookings();
   const quotes = useQuotes();
-  const orders = useOrders();
+  /*
+    ORDERS COME FROM THE DATABASE TOO, as of the payments stage. Orders
+    placed before that are still in the browsers that placed them; this
+    page no longer reads them.
+  */
+  const ordersList = useStaffList<Order>("/api/orders", "orders", "orders");
+  const orders = ordersList.items;
+  const claimedPayments = useStaffList<QueuedPayment>(
+    "/api/payments?status=claimed",
+    "payments",
+    "payments to verify",
+  );
+  const cashDuePayments = useStaffList<QueuedPayment>(
+    "/api/payments?status=cash_due",
+    "payments",
+    "cash due",
+  );
+  const receiptsList = useStaffList<ReceiptRecord>("/api/receipts", "receipts", "receipts");
+  const [carpetRefresh, setCarpetRefresh] = useState(0);
   const loaded = useIsHydrated();
+
+  /**
+   * After a payment moves (or a receipt is voided), everything that shows
+   * it reloads. The queue that acted refreshes itself.
+   */
+  function refreshAfterPayment() {
+    void refreshBookings();
+    void ordersList.refresh();
+    void claimedPayments.refresh();
+    void cashDuePayments.refresh();
+    void receiptsList.refresh();
+    setCarpetRefresh((value) => value + 1);
+  }
 
   const [query, setQuery] = useState("");
 
@@ -816,7 +876,7 @@ export default function AdminPage() {
   const [quoteSort, setQuoteSort] = useState<SortKey>("newest");
   const [orderSort, setOrderSort] = useState<SortKey>("newest");
 
-  const [bookingStatus, setBookingStatus] = useState<PaymentStatus | "all">(
+  const [bookingStatus, setBookingStatus] = useState<BookingFilter | "all">(
     "all",
   );
   const [quoteStatus, setQuoteStatus] = useState<QuoteStatus | "all">("all");
@@ -846,6 +906,18 @@ export default function AdminPage() {
     await refreshBookings();
   }
 
+  async function changeBookingJob(ref: string, status: JobStatus) {
+    setBookingWriteError(null);
+    const ok = await patchBookingJob(ref, status, getActingAs());
+    if (!ok) {
+      setBookingWriteError(
+        `Could not update ${ref}. The change was not saved — try again.`,
+      );
+      return;
+    }
+    await refreshBookings();
+  }
+
   const searching = normalise(query).length > 0;
 
   /* ------------------------------ bookings ----------------------------- */
@@ -863,6 +935,9 @@ export default function AdminPage() {
       dateTerms(booking.date),
       booking.startTime,
       statusWords(booking.paymentStatus),
+      statusWords(booking.jobStatus ?? "booked"),
+      booking.payment?.mpesaCode ?? "",
+      booking.payment?.receipt?.number ?? "",
     ]),
   );
 
@@ -870,14 +945,14 @@ export default function AdminPage() {
     const byStatus =
       bookingStatus === "all"
         ? foundBookings
-        : foundBookings.filter(
-            (booking) => booking.paymentStatus === bookingStatus,
+        : foundBookings.filter((booking) =>
+            matchesBookingFilter(booking, bookingStatus),
           );
     return sortRecords(
       byStatus,
       bookingSort,
       (booking) => `${booking.date} ${booking.startTime}`,
-      (booking) => PAYMENT_STATUSES.indexOf(booking.paymentStatus),
+      (booking) => JOB_STATUSES.indexOf(booking.jobStatus ?? "booked"),
     );
   }, [foundBookings, bookingStatus, bookingSort]);
 
@@ -917,9 +992,10 @@ export default function AdminPage() {
     haystack([
       order.customerName,
       order.phone,
-      order.deliveryLocation,
       order.notes,
       order.ref,
+      order.payment?.mpesaCode ?? "",
+      order.payment?.receipt?.number ?? "",
       statusWords(order.paymentStatus),
       dateTerms(order.createdAt),
       formatTimestamp(order.createdAt),
@@ -957,8 +1033,8 @@ export default function AdminPage() {
   const bookingsToday = bookings.filter(
     (booking) => booking.date === today,
   ).length;
-  const bookingsUnpaid = bookings.filter(
-    (booking) => booking.paymentStatus === "unpaid",
+  const bookingsDoneNotPaid = bookings.filter((booking) =>
+    matchesBookingFilter(booking, "done_not_paid"),
   ).length;
   const quotesNew = quotes.filter((quote) => quote.status === "new").length;
   const ordersUnpaid = orders.filter(
@@ -1030,6 +1106,44 @@ export default function AdminPage() {
             ) : null}
           </div>
 
+          {/* ----------------------- Payment queues ----------------------- */}
+          {/*
+            FIRST, because these are the jobs that cannot wait: a customer
+            who has paid is waiting for their code to be checked, and a
+            receipt number is only issued from here.
+          */}
+          <Section
+            id="admin-verify"
+            title="Payments to verify"
+            counts={[
+              claimedPayments.loading
+                ? ""
+                : `${claimedPayments.items.length} M-Pesa code${claimedPayments.items.length === 1 ? "" : "s"} waiting, oldest first`,
+            ]}
+            sort={null}
+            filter={null}
+          >
+            <div className="p-3 md:p-4">
+              <PaymentsToVerify list={claimedPayments} onChanged={refreshAfterPayment} />
+            </div>
+          </Section>
+
+          <Section
+            id="admin-cash"
+            title="Cash due"
+            counts={[
+              cashDuePayments.loading
+                ? ""
+                : `${cashDuePayments.items.length} waiting`,
+            ]}
+            sort={null}
+            filter={null}
+          >
+            <div className="p-3 md:p-4">
+              <CashDue list={cashDuePayments} onChanged={refreshAfterPayment} />
+            </div>
+          </Section>
+
           {/* ------------------------- Bookings ------------------------- */}
           <Section
             id="admin-bookings"
@@ -1037,7 +1151,7 @@ export default function AdminPage() {
             counts={[
               `${bookings.length} in total`,
               `${bookingsToday} today`,
-              bookingsUnpaid > 0 ? `${bookingsUnpaid} unpaid` : "",
+              bookingsDoneNotPaid > 0 ? `${bookingsDoneNotPaid} done, not paid` : "",
               showing(shownBookings.length, bookings.length),
             ]}
             sort={
@@ -1053,14 +1167,14 @@ export default function AdminPage() {
             filter={
               bookings.length > 0 ? (
                 <StatusFilter
-                  label="Filter bookings by payment"
+                  label="Filter bookings by job"
                   value={bookingStatus}
                   onChange={setBookingStatus}
-                  options={PAYMENT_STATUSES}
-                  labelOf={paymentLabel}
-                  countOf={(status) =>
-                    bookings.filter(
-                      (booking) => booking.paymentStatus === status,
+                  options={BOOKING_FILTERS}
+                  labelOf={bookingFilterLabel}
+                  countOf={(filter) =>
+                    bookings.filter((booking) =>
+                      matchesBookingFilter(booking, filter),
                     ).length
                   }
                   total={bookings.length}
@@ -1098,6 +1212,7 @@ export default function AdminPage() {
                       <th className={th}>Customer</th>
                       <th className={th}>Phone</th>
                       <th className={th}>Vehicle</th>
+                      <th className={th}>Job</th>
                       <th className={th}>Payment</th>
                       <th className={th}>Ref</th>
                     </tr>
@@ -1109,6 +1224,7 @@ export default function AdminPage() {
                         booking={booking}
                         today={today}
                         onPaymentChange={changeBookingPayment}
+                        onJobChange={changeBookingJob}
                       />
                     ))}
                   </tbody>
@@ -1205,11 +1321,11 @@ export default function AdminPage() {
           <Section
             id="admin-carpets"
             title="Carpet & sofa-set requests"
-            counts={["from /book/carpets — stored on the server, read-only here"]}
+            counts={["from /book/carpets — payments are handled in the queues above"]}
             sort={null}
             filter={null}
           >
-            <CarpetRequests />
+            <CarpetRequests refreshKey={carpetRefresh} />
           </Section>
 
           {/* -------------------------- Orders -------------------------- */}
@@ -1248,7 +1364,14 @@ export default function AdminPage() {
               ) : null
             }
           >
-            {shownOrders.length === 0 ? (
+            {ordersList.error ? (
+              <p className="mb-4 rounded-slab border-2 border-fail bg-fail-tint px-3 py-2 text-sm text-slab-800">
+                {ordersList.error}
+              </p>
+            ) : null}
+            {ordersList.loading ? (
+              <p className="text-sm text-slab-500">Loading orders...</p>
+            ) : shownOrders.length === 0 ? (
               <EmptyState filtered={ordersFiltered} onClear={clearAllFilters}>
                 No product orders yet.{" "}
                 <Link
@@ -1268,7 +1391,7 @@ export default function AdminPage() {
                       <th className={th}>Customer</th>
                       <th className={th}>Phone</th>
                       <th className={th}>Items</th>
-                      <th className={th}>Delivery</th>
+                      <th className={th}>Collection</th>
                       <th className={th}>Total</th>
                       <th className={th}>Payment</th>
                       <th className={th}>Ref</th>
@@ -1282,6 +1405,22 @@ export default function AdminPage() {
                 </table>
               </div>
             )}
+          </Section>
+
+          {/* --------------------------- Receipts --------------------------- */}
+          <Section
+            id="admin-receipts"
+            title="Receipts"
+            counts={[
+              receiptsList.loading ? "" : `${receiptsList.items.length} issued in total`,
+              "W = wash and carpets (till, bay cash) · C = concrete (paybill, yard cash)",
+            ]}
+            sort={null}
+            filter={null}
+          >
+            <div className="p-3 md:p-4">
+              <ReceiptsLedger list={receiptsList} onChanged={refreshAfterPayment} />
+            </div>
           </Section>
 
           {/* ---------------------------- Prices ---------------------------- */}
@@ -1309,14 +1448,14 @@ export default function AdminPage() {
               onClick={() => {
                 if (
                   window.confirm(
-                    "Delete all demo bookings, orders, quote requests and change requests from this browser?",
+                    "Delete the quote requests, change requests and pre-server orders stored in this browser? Bookings, orders, payments and receipts on the server are not affected.",
                   )
                 ) {
                   clearAll();
                 }
               }}
             >
-              Clear all demo data
+              Clear this browser&rsquo;s demo data
             </Button>
           </div>
         </>
@@ -1346,6 +1485,7 @@ function BookingRow({
   booking,
   today,
   onPaymentChange,
+  onJobChange,
 }: {
   booking: Booking;
   today: string;
@@ -1356,8 +1496,10 @@ function BookingRow({
     and the message shown if it does not land.
   */
   onPaymentChange: (ref: string, status: PaymentStatus) => void;
+  onJobChange: (ref: string, status: JobStatus) => void;
 }) {
   const isToday = booking.date === today;
+  const job = booking.jobStatus ?? "booked";
   return (
     <tr>
       <td className={`${td} font-semibold md:whitespace-nowrap`} data-head="">
@@ -1407,26 +1549,50 @@ function BookingRow({
       <td className={td} data-label="Vehicle">
         {booking.vehicle}
       </td>
-      <td className={td} data-label="Payment">
+      {/*
+        THE WORK, separately from the money. Every change goes to
+        `status_changes` with the Acting-as name, alongside the payment
+        events the queues write, so the log under it is the whole story.
+      */}
+      <td className={td} data-label="Job">
         <div className="flex flex-col items-start gap-1">
-          <PaymentBadge status={booking.paymentStatus} />
-          <span className="text-xs text-slab-500">
-            {formatKes(booking.priceKes)}
+          <span className="text-xs font-bold uppercase tracking-wide">
+            {jobLabel(job)}
           </span>
           <StatusSelect
-            id={`pay-booking-${booking.ref}`}
-            label={`Change payment status for booking ${booking.ref}`}
-            value={booking.paymentStatus}
-            options={PAYMENT_STATUSES}
-            onChange={(status) => onPaymentChange(booking.ref, status)}
+            id={`job-booking-${booking.ref}`}
+            label={`Change job status for booking ${booking.ref}`}
+            value={job}
+            options={JOB_STATUSES}
+            onChange={(status) => onJobChange(booking.ref, status)}
           />
           <StatusLog history={booking.history} />
-          <ReceiptLink
-            kind="booking"
-            reference={booking.ref}
-            status={booking.paymentStatus}
-          />
         </div>
+      </td>
+      <td className={td} data-label="Payment">
+        {booking.payment ? (
+          <PaymentCell payment={booking.payment} kind="booking" reference={booking.ref} />
+        ) : (
+          /*
+            A BOOKING FROM BEFORE PAYMENTS WERE RECORDED. It has nothing to
+            verify and no receipt can be issued for it, so its hand-set
+            status stays editable here — the server refuses this select for
+            any booking that has a payment record.
+          */
+          <div className="flex flex-col items-start gap-1">
+            <PaymentBadge status={booking.paymentStatus} />
+            <span className="text-xs text-slab-500">
+              {formatKes(booking.priceKes)} · no payment record
+            </span>
+            <StatusSelect
+              id={`pay-booking-${booking.ref}`}
+              label={`Change payment status for booking ${booking.ref}`}
+              value={booking.paymentStatus}
+              options={PAYMENT_STATUSES}
+              onChange={(status) => onPaymentChange(booking.ref, status)}
+            />
+          </div>
+        )}
       </td>
       <td className={`${td} font-mono text-xs text-slab-500`} data-label="Ref">
         {booking.ref}
@@ -1534,7 +1700,7 @@ function QuoteRows({
               </div>
               <div>
                 <dt className="text-xs font-bold uppercase tracking-wide text-slab-500">
-                  Delivery to
+                  Collection / location given
                 </dt>
                 <dd className="mt-0.5">{quote.deliveryLocation || "-"}</dd>
               </div>
@@ -1597,31 +1763,21 @@ function OrderRow({ order }: { order: Order }) {
           ))}
         </ul>
       </td>
-      <td className={td} data-label="Delivery">
+      <td className={td} data-label="Collection">
         {order.deliveryLocation}
       </td>
       <td className={`${td} font-bold md:whitespace-nowrap`} data-label="Total">
         {formatKes(order.subtotalKes)}
       </td>
       <td className={td} data-label="Payment">
-        <div className="flex flex-col items-start gap-1">
+        {order.payment ? (
+          <div className="flex flex-col items-start gap-1">
+            <PaymentCell payment={order.payment} kind="order" reference={order.ref} />
+            <StatusLog history={order.history} />
+          </div>
+        ) : (
           <PaymentBadge status={order.paymentStatus} />
-          <StatusSelect
-            id={`pay-order-${order.ref}`}
-            label={`Change payment status for order ${order.ref}`}
-            value={order.paymentStatus}
-            options={PAYMENT_STATUSES}
-            onChange={(status) =>
-              updateOrderPayment(order.ref, status, getActingAs())
-            }
-          />
-          <StatusLog history={order.history} />
-          <ReceiptLink
-            kind="order"
-            reference={order.ref}
-            status={order.paymentStatus}
-          />
-        </div>
+        )}
       </td>
       <td className={`${td} font-mono text-xs text-slab-500`} data-label="Ref">
         {order.ref}

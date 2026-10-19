@@ -9,7 +9,9 @@ import { getBookedIntervals } from "@/lib/bookings-db";
 import { generateSlots, getBookableDates, holdMinutesFor } from "@/lib/slots";
 import { isStaffRequest } from "@/lib/staff-guard";
 import { isValidKenyanPhone } from "@/lib/validate";
-import type { BookingLine, PaymentStatus } from "@/types";
+import { CODE_ALREADY_USED, parsePaymentChoice } from "@/lib/payments";
+import { isCodeInUse } from "@/lib/payments-db";
+import type { BookingLine } from "@/types";
 
 /**
  * =====================================================================
@@ -90,14 +92,13 @@ interface BookingRequestBody {
   phone?: unknown;
   vehicle?: unknown;
   notes?: unknown;
-  paymentStatus?: unknown;
+  /**
+   * { method, destination, mpesaCode }. Read by `parsePaymentChoice`,
+   * which looks at nothing else — a `status` or an amount in here is
+   * ignored. See src/lib/payments.ts.
+   */
+  payment?: unknown;
 }
-
-const PAYMENT_STATUSES: PaymentStatus[] = [
-  "paid",
-  "pay_on_collection",
-  "unpaid",
-];
 
 function asTrimmedString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -211,13 +212,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const paymentStatus = asTrimmedString(body.paymentStatus) as PaymentStatus;
-  if (!PAYMENT_STATUSES.includes(paymentStatus)) {
-    return json(
-      { error: "bad_request", detail: "Unknown payment status." },
-      400,
-    );
+  /* ---- how they will pay: M-Pesa to the till, or cash at the bay ---- */
+  const parsedPayment = parsePaymentChoice(body.payment, "wash");
+  if (!parsedPayment.ok) {
+    return json({ error: "bad_request", detail: parsedPayment.detail }, 400);
   }
+  const payment = parsedPayment.choice;
 
   /* ---- the slot, checked against the real diary ----
 
@@ -255,6 +255,24 @@ export async function POST(request: NextRequest) {
     return json({ error: "slot_taken" }, 409);
   }
 
+  /*
+    A CODE ALREADY ON ANOTHER PAYMENT IS TURNED AWAY BEFORE THE SLOT IS
+    TAKEN. The unique index on `payments.mpesa_code` is the real guarantee
+    and `createBooking` reports a violation of it the same way; asking first
+    just means the common case — the same code typed twice — never briefly
+    holds the bay.
+  */
+  if (payment.mpesaCode) {
+    try {
+      if (await isCodeInUse(payment.mpesaCode)) {
+        return json({ error: "code_used", detail: CODE_ALREADY_USED }, 409);
+      }
+    } catch (error) {
+      console.error("[api/bookings] code check failed:", error);
+      return json({ error: "read_failed" }, 503);
+    }
+  }
+
   /* ---- write it ---- */
   const input: NewBookingInput = {
     vehicleTypeId: pricedAs.id,
@@ -272,7 +290,7 @@ export async function POST(request: NextRequest) {
     phone,
     vehicle,
     notes,
-    paymentStatus,
+    payment,
   };
 
   let result;
@@ -295,6 +313,9 @@ export async function POST(request: NextRequest) {
   */
   if (result.reason === "slot_taken") {
     return json({ error: "slot_taken" }, 409);
+  }
+  if (result.reason === "code_used") {
+    return json({ error: "code_used", detail: CODE_ALREADY_USED }, 409);
   }
 
   if (result.reason === "ref_exhausted") {

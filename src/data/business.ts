@@ -10,6 +10,7 @@
  * now BLANK rather than fake; see the note on that field below.
  */
 
+import { mpesaDestinations } from "@/data/config";
 import type { DayHours, WeekdayIndex } from "@/types";
 
 /* ------------------------------------------------------------------ */
@@ -188,7 +189,8 @@ export const business = {
   email: "",
 
   /**
-   * M-PESA BUY GOODS TILL — SUPPLIED BY THE CLIENT.
+   * M-PESA BUY GOODS TILL — SUPPLIED BY THE CLIENT. The number itself is
+   * in `mpesaDestinations` in src/data/config.ts; this is a pointer to it.
    *
    * This is a BUY GOODS till, not a paybill. The distinction is the whole
    * reason the wording around it is specific: the customer picks "Buy Goods
@@ -206,7 +208,7 @@ export const business = {
    * and the M-Pesa line drops out whole, rather than printing a payment
    * instruction with the number missing from the end of it.
    */
-  tillNumber: "9806711",
+  tillNumber: mpesaDestinations.till.tillNumber,
 
   /**
    * CONFIRMED — the registered domain.

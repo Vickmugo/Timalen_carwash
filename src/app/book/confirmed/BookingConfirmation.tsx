@@ -1,5 +1,5 @@
 import { ButtonLink } from "@/components/Button";
-import { PaymentBadge } from "@/components/Badge";
+import { PaymentStatusNotice } from "@/components/PaymentStatusNotice";
 import { business } from "@/data/business";
 import { getFlatVehicle } from "@/data/services";
 import { formatKes, formatLongDate } from "@/lib/format";
@@ -119,32 +119,34 @@ export function BookingConfirmation({ booking }: { booking: Booking | null }) {
               <dd className="text-sm font-semibold">{value}</dd>
             </div>
           ))}
-          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
-            <dt className="text-sm font-bold uppercase tracking-wide text-slab-500">
-              Payment
+          <div className="flex flex-wrap items-center justify-between gap-2 bg-slab-50 px-4 py-3">
+            <dt className="text-sm font-bold uppercase tracking-wide text-slab-700">
+              Total
             </dt>
-            <dd className="flex items-center gap-2 text-sm font-semibold">
-              {formatKes(booking.priceKes)}
-              <PaymentBadge status={booking.paymentStatus} />
-            </dd>
+            <dd className="text-lg font-extrabold">{formatKes(booking.priceKes)}</dd>
           </div>
         </dl>
       </div>
 
-      <p className="mt-4 rounded-slab border-2 border-hivis bg-hivis-tint px-3 py-2 text-sm text-slab-800">
-        Demo only. No confirmation SMS is sent and no payment was taken.
+      {/*
+        WHERE THE PAYMENT STANDS. "Payment pending verification" or "Pay
+        cash at the yard" until staff confirm it; the receipt number and
+        the print link appear only after that. See PaymentStatusNotice.
+      */}
+      <div className="mt-4">
+        <PaymentStatusNotice
+          payment={booking.payment}
+          legacyStatus={booking.paymentStatus}
+          context="wash"
+          receiptHref={receiptPath("booking", booking.ref)}
+        />
+      </div>
+
+      <p className="mt-4 text-sm text-slab-600">
+        No confirmation SMS is sent. Keep this page or your reference.
       </p>
 
       <div className="mt-6 flex flex-wrap gap-3">
-        {/*
-          Offered whatever the payment status is. This is the customer's own
-          record of what they just booked, and the receipt states the status
-          plainly — including "Unpaid". The staff view applies a stricter
-          rule; see canIssueReceipt in src/lib/receipt.ts.
-        */}
-        <ButtonLink href={receiptPath("booking", booking.ref)}>
-          View / print receipt
-        </ButtonLink>
         <ButtonLink href="/products" variant="outline">
           Browse concrete products
         </ButtonLink>
