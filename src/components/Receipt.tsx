@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * =====================================================================
  * PRINTABLE RECEIPT — the official one, and the page before it exists.
@@ -18,6 +16,12 @@
  * service or an edited booking can never alter a receipt somebody already
  * holds. A voided receipt still renders, marked VOID, with its number.
  *
+ * A SERVER COMPONENT, FED A VIEW MODEL. It takes a `ReceiptView`
+ * (src/lib/receipt-view.ts), which is the full receipt for staff and a
+ * masked one for anyone else, never the receipt row or the payment. Only
+ * the print button is client code (./PrintReceiptButton.tsx), and it takes
+ * no props, so no record data reaches the browser except what is printed.
+ *
  * DESIGNED FOR PAPER FIRST. What is on screen is the document, shown.
  * Black text, white ground, structure carried by rules and weight rather
  * than colour, one narrow column that reflows onto A4 or Letter. The print
@@ -35,11 +39,13 @@
  * =====================================================================
  */
 
-import { Button, ButtonLink } from "@/components/Button";
+import { ButtonLink } from "@/components/Button";
+import { PrintReceiptButton } from "@/components/PrintReceiptButton";
 import { business, hoursSummary } from "@/data/business";
 import { formatKes, formatLongDate, formatTimestamp } from "@/lib/format";
 import { channelLabel } from "@/lib/payments";
-import type { PaymentSummary, ReceiptRecord } from "@/types";
+import type { ReceiptView } from "@/lib/receipt-view";
+import type { PaymentRecordStatus } from "@/types";
 
 /* ------------------------------------------------------------------ */
 /* Shared pieces                                                       */
@@ -100,7 +106,7 @@ function ReceiptActions({ backHref }: { backHref: string }) {
   return (
     <div className="no-print mt-8 border-t-2 border-slab-200 pt-6">
       <div className="flex flex-wrap gap-3">
-        <Button onClick={() => window.print()}>Print receipt</Button>
+        <PrintReceiptButton />
         <ButtonLink href={backHref} variant="quiet">
           Back
         </ButtonLink>
@@ -124,11 +130,9 @@ function Sheet({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * Nothing to show for that reference. Every record is on the server now,
- * so a reference that finds nothing finds nothing anywhere — the old
- * "try the phone you ordered on" explanation would be a wrong steer.
- * (Orders placed before the move to the server are still only in the
- * browser that placed them, and do not have official receipts.)
+ * Nothing to show for that reference. STAFF ONLY: a visitor without a
+ * session gets the site's plain 404 for every case, so the page cannot
+ * be used to learn which refs exist (src/app/receipt/receipt-page.tsx).
  */
 export function NotFound({
   reference,
@@ -162,24 +166,26 @@ export function NotFound({
 
 /**
  * NO RECEIPT YET — and the page says why, with no number on it, no "Paid"
- * and no print button.
+ * and no print button. STAFF ONLY, like `NotFound`; it is given the
+ * payment's status and nothing else.
  */
 export function PendingReceipt({
   reference,
-  payment,
+  status,
   backHref,
 }: {
   reference: string;
-  payment: PaymentSummary | undefined;
+  /** Null for a record made before payments were recorded. */
+  status: PaymentRecordStatus | null;
   backHref: string;
 }) {
-  const message = !payment
+  const message = !status
     ? "This record was made before payments were recorded online, so it has no official receipt. Ask at the yard."
-    : payment.status === "claimed"
+    : status === "claimed"
       ? "Payment pending verification. We check your M-Pesa payment against our statement, and your receipt is issued once it is confirmed."
-      : payment.status === "rejected"
+      : status === "rejected"
         ? "We could not match your M-Pesa payment. The yard will call you to sort it out."
-        : payment.status === "cash_due"
+        : status === "cash_due"
           ? "Pay cash at the yard. Your receipt is issued when the cash is received."
           : "Your payment has been confirmed, but the receipt is not ready yet. Call the yard if this does not change.";
 
@@ -213,12 +219,11 @@ export function OfficialReceipt({
   receipt,
   backHref,
 }: {
-  receipt: ReceiptRecord;
+  receipt: ReceiptView;
   backHref: string;
 }) {
-  const snap = receipt.snapshot;
-  const isVoid = receipt.status === "void";
-  const lines = snap.lines ?? [];
+  const isVoid = receipt.void !== null;
+  const lines = receipt.lines;
 
   return (
     <Sheet>
@@ -233,20 +238,20 @@ export function OfficialReceipt({
         <div className="keep-together mt-5 border-4 border-slab-900 px-3 py-2 text-center">
           <p className="text-3xl font-extrabold tracking-[0.3em]">VOID</p>
           <p className="mt-1 text-xs">
-            Voided {receipt.voidedAt ? formatTimestamp(receipt.voidedAt) : ""}
-            {receipt.voidReason ? ` — ${receipt.voidReason}` : ""}
+            Voided {receipt.void?.at ? formatTimestamp(receipt.void.at) : ""}
+            {receipt.void?.reason ? ` — ${receipt.void.reason}` : ""}
           </p>
         </div>
       ) : null}
 
       <div className="mt-5 flex flex-wrap items-end justify-between gap-x-6 gap-y-2 border-b-2 border-slab-900 pb-3">
         <div>
-          <h1 className="text-lg">{TITLES[snap.kind]}</h1>
+          <h1 className="text-lg">{TITLES[receipt.kind]}</h1>
           <p className="mt-0.5 text-xs uppercase tracking-wide text-slab-600">
             Issued {formatTimestamp(receipt.issuedAt)}
           </p>
           <p className="mt-0.5 text-xs uppercase tracking-wide text-slab-600">
-            Reference <span className="font-mono font-bold">{snap.ref}</span>
+            Reference <span className="font-mono font-bold">{receipt.ref}</span>
           </p>
         </div>
         <div className="text-right">
@@ -263,7 +268,7 @@ export function OfficialReceipt({
           <thead>
             <tr className="border-b-2 border-slab-900">
               <th className="py-1.5 text-left text-xs font-bold uppercase tracking-wide text-slab-600">
-                {snap.kind === "booking" ? (snap.priced_as ?? "Service") : "Item"}
+                {receipt.kind === "booking" ? (receipt.pricedAs ?? "Service") : "Item"}
               </th>
               <th className="py-1.5 text-right text-xs font-bold uppercase tracking-wide text-slab-600">
                 Qty
@@ -298,23 +303,23 @@ export function OfficialReceipt({
             ))}
           </tbody>
         </table>
-      ) : snap.item_text ? (
-        <p className="mt-4 whitespace-pre-line text-sm">{snap.item_text}</p>
+      ) : receipt.itemText ? (
+        <p className="mt-4 whitespace-pre-line text-sm">{receipt.itemText}</p>
       ) : null}
 
       <dl className="mt-4">
-        {snap.kind === "booking" && snap.date ? (
+        {receipt.kind === "booking" && receipt.date ? (
           <>
-            <Line label="Date" value={formatLongDate(snap.date)} />
-            <Line label="Time" value={`${snap.start_time ?? ""} - ${snap.end_time ?? ""}`} />
-            {snap.vehicle ? <Line label="Vehicle" value={snap.vehicle} /> : null}
+            <Line label="Date" value={formatLongDate(receipt.date)} />
+            <Line label="Time" value={`${receipt.startTime ?? ""} - ${receipt.endTime ?? ""}`} />
+            {receipt.vehicle ? <Line label="Vehicle" value={receipt.vehicle} /> : null}
           </>
         ) : null}
-        {snap.kind === "order" && snap.collection ? (
-          <Line label="Collection" value={snap.collection} />
+        {receipt.kind === "order" && receipt.collection ? (
+          <Line label="Collection" value={receipt.collection} />
         ) : null}
-        <Line label="Customer" value={snap.customer_name} />
-        <Line label="Phone" value={snap.phone} />
+        <Line label="Customer" value={receipt.customerName} />
+        <Line label="Phone" value={receipt.phone} />
       </dl>
 
       <div className="keep-together mt-4 border-t-2 border-slab-900 pt-3">
@@ -322,13 +327,13 @@ export function OfficialReceipt({
           <span className="text-sm font-bold uppercase tracking-wide">Amount paid</span>
           <span className="text-lg font-extrabold">{formatKes(receipt.amountKes)}</span>
         </div>
-        {snap.amount_differs ? (
+        {receipt.amountDiffers ? (
           /*
             Cash counted at the counter that did not match the expected
             total. Allowed, and said on the paper rather than smoothed over.
           */
           <p className="mt-1 text-xs font-semibold">
-            Expected {formatKes(snap.expected_kes)}; {formatKes(snap.received_kes)} received.
+            Expected {formatKes(receipt.amountDiffers.expectedKes)}; {formatKes(receipt.amountDiffers.receivedKes)} received.
           </p>
         ) : null}
         <div className="mt-1.5 flex justify-between gap-4">
@@ -336,7 +341,7 @@ export function OfficialReceipt({
           <span className="text-right text-sm font-extrabold uppercase tracking-wide">
             {receipt.method === "cash"
               ? "Cash"
-              : `M-Pesa ${channelLabel(receipt.method, snap.destination)}`}
+              : `M-Pesa ${channelLabel(receipt.method, receipt.destination)}`}
           </span>
         </div>
         {receipt.mpesaCode ? (

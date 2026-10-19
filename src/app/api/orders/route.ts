@@ -210,7 +210,8 @@ export async function POST(request: NextRequest) {
       notes,
       payment,
     });
-    if (result.ok) return json({ order: result.order }, 201);
+    // The ref only, as for bookings: /checkout/confirmed reads the public view.
+    if (result.ok) return json({ order: { ref: result.order.ref } }, 201);
     if (result.reason === "code_used") {
       return json({ error: "code_used", detail: CODE_ALREADY_USED }, 409);
     }

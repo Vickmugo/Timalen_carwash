@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { LIMITS, rateLimit } from "@/lib/rate-limit";
 import { SESSION_COOKIE, staffAuthConfig, verifySessionValue } from "@/lib/session";
 
 /**
@@ -77,7 +78,39 @@ const MISCONFIGURED_MESSAGE = [
   "top of src/lib/session.ts.",
 ].join("\n");
 
-export function proxy(request: NextRequest) {
+/**
+ * /receipt — RATE-LIMITED, NOT GATED.
+ *
+ * Receipts are public pages reached by a ref (src/app/receipt/receipt-page.tsx
+ * decides what a visitor sees). Done here rather than in the page so a
+ * limited request gets a real 429: a page can only render, not choose its
+ * status. Same counter as GET /api/bookings/[ref] and /api/orders/[ref],
+ * so switching between them does not buy more guesses. Staff with a valid
+ * session are not counted, as in the API.
+ */
+async function limitReceiptLookup(request: NextRequest) {
+  const config = staffAuthConfig();
+  const staff =
+    config.ok && verifySessionValue(request.cookies.get(SESSION_COOKIE)?.value, config.secret);
+  if (staff) return NextResponse.next();
+
+  const limited = await rateLimit(request, LIMITS.refLookup);
+  if (limited.allowed) return NextResponse.next();
+  return new NextResponse("Too many requests, try again in a minute.", {
+    status: 429,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-store",
+      "Retry-After": String(limited.retryAfterSeconds),
+    },
+  });
+}
+
+export async function proxy(request: NextRequest) {
+  if (request.nextUrl.pathname.startsWith("/receipt/")) {
+    return limitReceiptLookup(request);
+  }
+
   const config = staffAuthConfig();
 
   if (!config.ok) {
@@ -152,6 +185,9 @@ export const config = {
     /login and /api/login are deliberately NOT matched. They are the way in;
     gating them on being signed in already would be a locked door whose key
     is behind the same door.
+
+    /receipt/:path* is matched for the lookup limit only; see
+    `limitReceiptLookup` above. It is never gated on a session.
   */
-  matcher: ["/admin", "/admin/:path*"],
+  matcher: ["/admin", "/admin/:path*", "/receipt/:path*"],
 };

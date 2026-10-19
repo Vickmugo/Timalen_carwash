@@ -231,7 +231,8 @@ export async function POST(request: NextRequest) {
      turns up. The per-IP limit only stops floods (many customers share a
      carrier's IP); this cap is what stops one number filling the diary.
      Matched on the canonical number, so "+254 712…" and "0712…" are the
-     same phone. */
+     same phone. BEST-EFFORT: count-then-insert, so simultaneous requests
+     can overshoot by a few; accepted, it is a speed bump, not a lock. */
   try {
     const upcoming = await countUpcomingBookingsForPhone(phone, getBookableDates()[0]);
     if (upcoming >= MAX_UPCOMING_PER_PHONE) {
@@ -330,7 +331,10 @@ export async function POST(request: NextRequest) {
     return json({ error: "write_failed" }, 503);
   }
 
-  if (result.ok) return json({ booking: result.booking }, 201);
+  // The ref only: the form goes straight to /book/confirmed, which reads
+  // the minimal public view. The full record (payment id, history, notes)
+  // stays on the server.
+  if (result.ok) return json({ booking: { ref: result.booking.ref } }, 201);
 
   /*
     EVERY FAILURE BECOMES SOMETHING A CUSTOMER CAN ACT ON.

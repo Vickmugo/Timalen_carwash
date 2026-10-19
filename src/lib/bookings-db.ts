@@ -273,8 +273,8 @@ export interface NewBookingInput {
 /**
  * How many references to try before giving up.
  *
- * `makeRef` draws six characters from a 32-letter alphabet — about a
- * billion values — so a collision is already unlikely and two in a row is
+ * `makeRef` draws eight characters from a 32-letter alphabet — about a
+ * trillion values — so a collision is already unlikely and two in a row is
  * vanishingly so. The retry exists because the schema was built for it:
  * `unique (business_id, ref)` turns a duplicate into a catchable error
  * instead of a silently overwritten booking, and this is the code that was
@@ -580,8 +580,9 @@ export type UpdatePaymentResult =
  *
  * `by` is passed in rather than read from a session in here, for the same
  * reason it always was — the call site should show what is being recorded.
- * It is still a SELF-REPORTED name from the "Acting as" field and proves
- * nothing about who was at the keyboard. See src/data/admin-users.ts.
+ * The route passes the name from the signed staff session. It is still
+ * SELF-REPORTED — typed at sign-in — and proves nothing about who was at
+ * the keyboard. See src/lib/session.ts.
  *
  * Two writes again, and unlike the booking insert this one does not
  * compensate: if the history write fails after the status write, the

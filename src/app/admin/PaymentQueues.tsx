@@ -17,7 +17,8 @@
  *
  * Oldest first. Whoever paid first is checked first.
  *
- * "By" is the "Acting as" name, self-reported, as everywhere else.
+ * Who resolved it is stamped by the server from the staff session (the
+ * first name typed at sign-in, self-reported); this page sends no name.
  * =====================================================================
  */
 

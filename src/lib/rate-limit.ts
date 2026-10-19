@@ -43,7 +43,7 @@ export const LIMITS = {
   orderCreate: { bucket: "order-create", limit: 30, windowSeconds: 60 * 60 },
   carpetCreate: { bucket: "carpet-create", limit: 30, windowSeconds: 60 * 60 },
   quoteCreate: { bucket: "quote-create", limit: 30, windowSeconds: 60 * 60 },
-  /** Public lookups by ref, bookings and orders sharing one counter. */
+  /** Public lookups by ref: the booking and order APIs and the receipt pages share one counter. */
   refLookup: { bucket: "ref-lookup", limit: 60, windowSeconds: 60 },
 } satisfies Record<string, RateLimitRule>;
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { canonicalStaffName } from "@/data/staff-names";
 import { LIMITS, rateLimit } from "@/lib/rate-limit";
+import { readFormBody } from "@/lib/request-body";
 import {
   SESSION_COOKIE,
   createSessionValue,
@@ -22,6 +23,7 @@ import {
  * re-posting. Never cached.
  *
  * ORDER MATTERS:
+ *   0. Body over 8 KB?  -> 413, before anything is parsed.
  *   1. Too many recent failures from this IP?  -> 429, nothing else checked.
  *   2. Password wrong?  -> "wrong", counted as a failure. The name is not
  *      looked at, so the response is byte-for-byte the same whatever name
@@ -41,10 +43,27 @@ function seeOther(url: URL): NextResponse {
   return response;
 }
 
+/**
+ * A first name, a password and a return path. Far under this; anything
+ * near it is not someone signing in, and is refused before it is read in
+ * full or the password is looked at.
+ */
+const MAX_LOGIN_BODY_BYTES = 8 * 1024;
+
 export async function POST(request: NextRequest) {
   const config = staffAuthConfig();
 
-  const form = await request.formData();
+  const parsed = await readFormBody(request, MAX_LOGIN_BODY_BYTES);
+  if (!parsed.ok) {
+    return new NextResponse(
+      parsed.status === 413 ? "That request is too large." : "That is not a sign-in form.",
+      {
+        status: parsed.status,
+        headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
+      },
+    );
+  }
+  const form = parsed.form;
   const supplied = form.get("password");
   const next = safeReturnPath(String(form.get("next") ?? ""));
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { listRecentPriceChanges, readPriceBook, setPrice } from "@/lib/prices-db";
 import type { PriceKind } from "@/lib/prices-db";
+import { readJsonBody } from "@/lib/request-body";
 import { getStaffSession, isStaffRequest } from "@/lib/staff-guard";
 import { getVehicleType, getWashPriceRow } from "@/data/services";
 import { flatPriceGroups } from "@/data/services";
@@ -113,19 +114,16 @@ export async function PATCH(request: NextRequest) {
   const staff = getStaffSession(request);
   if (!staff) return json({ error: "not_authorised" }, 401);
 
-  let body: {
+  const parsed = await readJsonBody<{
     kind?: unknown;
     serviceId?: unknown;
     vehicleTypeId?: unknown;
     id?: unknown;
     variantId?: unknown;
     priceKes?: unknown;
-  };
-  try {
-    body = (await request.json()) as typeof body;
-  } catch {
-    return json({ error: "bad_request", detail: "Body is not JSON." }, 400);
-  }
+  } | null>(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body ?? {};
 
   const kind = body.kind as PriceKind;
   if (!KINDS.includes(kind)) {

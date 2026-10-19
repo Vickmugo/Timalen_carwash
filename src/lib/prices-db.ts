@@ -225,9 +225,10 @@ function cellFilter(kind: PriceKind, key: PriceCellKey): Record<string, string> 
  * site. The log is the only record that it happened.
  *
  * `by` is passed in rather than read from a session inside here, so the
- * call site shows what is being recorded. It is the self-reported "Acting
- * as" name and proves nothing about who was at the keyboard — see
- * src/data/admin-users.ts. Blank becomes UNATTRIBUTED rather than an empty
+ * call site shows what is being recorded. /api/prices passes the name on
+ * the signed staff session, which is self-reported at sign-in and proves
+ * nothing about who was at the keyboard — see src/lib/session.ts. Blank
+ * becomes UNATTRIBUTED rather than an empty
  * string, so an anonymous change is recorded as anonymous instead of as a
  * change by somebody called "".
  *

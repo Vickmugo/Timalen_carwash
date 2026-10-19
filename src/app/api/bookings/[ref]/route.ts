@@ -10,6 +10,7 @@ import { getStaffSession } from "@/lib/staff-guard";
 import { isRef } from "@/lib/format";
 import { publicBooking } from "@/lib/public-view";
 import { LIMITS, rateLimit, tooManyRequests } from "@/lib/rate-limit";
+import { readJsonBody } from "@/lib/request-body";
 import type { JobStatus, PaymentStatus } from "@/types";
 
 /**
@@ -21,26 +22,24 @@ import type { JobStatus, PaymentStatus } from "@/types";
  *          status. STAFF ONLY. A booking with a payment record has its
  *          payment moved through /api/payments/[id], never here.
  *
- * WHO CAN READ A BOOKING NOW, AND WHY IT IS WORTH SAYING OUT LOUD.
+ * WHO CAN READ A BOOKING, AND HOW MUCH.
  *
- * The reference is the only credential on GET. That matches how the
- * customer-facing pages work — the confirmation page and the receipt are
- * reached from a link carrying the ref, by someone who has just made the
- * booking or been handed the printout.
+ * The reference is the only credential on GET, because the confirmation
+ * page and the receipt are reached from a link carrying it. A ref is not a
+ * secret (it is read aloud and pasted into chats), so:
  *
- * It is nonetheless a REAL CHANGE from the localStorage version, and not a
- * small one. Before this stage a booking existed only in the browser that
- * made it, so a guessed reference found nothing at all. Now a guessed
- * reference returns a real customer's name, phone number and vehicle from
- * the server. `makeRef` draws six characters from a 32-letter alphabet and
- * documents itself as "not collision-proof"; it was never designed to be
- * unguessable either, and nothing here rate-limits attempts.
+ *   - without a staff session the answer is the minimal public view
+ *     (src/lib/public-view.ts): first name, masked phone, what and when,
+ *     the amount and a payment label. Never the full name or phone, the
+ *     vehicle, notes, the M-Pesa code or the history.
+ *   - lookups without a session are rate-limited per IP (60 a minute,
+ *     shared with /api/orders/[ref] and the receipt pages), counted before
+ *     the ref is even checked.
+ *   - new refs are eight characters from a 32-letter alphabet drawn with
+ *     the platform CSPRNG (`makeRef`, src/lib/format.ts); six-character
+ *     refs issued before that still resolve.
  *
- * That is a deliberate, documented consequence of this stage rather than an
- * oversight — the receipt has to work from a link. The fix, when these stop
- * being demo records, is a longer random reference or a separate
- * unguessable token in the URL, plus rate limiting. Noted here so it is
- * decided rather than inherited.
+ * Staff with a session get the full record.
  * =====================================================================
  */
 
@@ -109,12 +108,9 @@ export async function PATCH(
 
   const { ref } = await params;
 
-  let body: { paymentStatus?: unknown; jobStatus?: unknown };
-  try {
-    body = (await request.json()) as typeof body;
-  } catch {
-    return json({ error: "bad_request", detail: "Body is not JSON." }, 400);
-  }
+  const parsed = await readJsonBody<{ paymentStatus?: unknown; jobStatus?: unknown } | null>(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body ?? {};
 
   /* ---- the work: booked -> in progress -> done, or cancelled / no-show ---- */
   if (body.jobStatus !== undefined) {
