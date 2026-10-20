@@ -107,10 +107,7 @@ import {
   bookingVehicleTypeName,
 } from "@/lib/booking";
 import { cartLineKey, cartLineName } from "@/lib/cart-line";
-import {
-  clearAll,
-  useIsHydrated,
-} from "@/lib/store";
+import { useIsHydrated } from "@/lib/store";
 import {
   patchBookingJob,
   patchBookingPayment,
@@ -1362,23 +1359,6 @@ export default function AdminPage() {
           </Section>
 
           <ChangeRequestsSection />
-
-          <div className="mt-10 border-t-2 border-slab-200 pt-6">
-            <Button
-              variant="quiet"
-              onClick={() => {
-                if (
-                  window.confirm(
-                    "Delete any old change requests, quote requests and pre-server orders left in this browser? Nothing on the server is affected, change requests included.",
-                  )
-                ) {
-                  clearAll();
-                }
-              }}
-            >
-              Clear this browser&rsquo;s demo data
-            </Button>
-          </div>
         </>
       )}
     </div>

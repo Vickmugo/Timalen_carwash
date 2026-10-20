@@ -30,7 +30,9 @@
  * =====================================================================
  */
 
+import { CopyButton } from "@/components/CopyButton";
 import { TextField } from "@/components/Field";
+import { MpesaBadge } from "@/components/MpesaBadge";
 import { mpesaDestinations } from "@/data/config";
 import { formatKes } from "@/lib/format";
 import {
@@ -155,52 +157,68 @@ export function PaymentChoice({
       {value.method === "mpesa" ? (
         <div className="mt-4 rounded-slab border-2 border-slab-900 bg-white px-4 py-4">
           {/*
-            THE HANDSET'S OWN MENU WORDS, in order. "Buy Goods and Services"
-            and "Pay Bill" are the items the customer is looking for, and a
-            Buy Goods till takes no account number — a customer hunting for
-            one either gives up or invents a reference nobody can match.
+            THE HANDSET'S OWN MENU WORDS. "Buy Goods and Services" and "Pay
+            Bill" are the items the customer is looking for, and a Buy Goods
+            till takes no account number — a customer hunting for one either
+            gives up or invents a reference nobody can match. ONE destination
+            per card, the one this purchase is paid to: wash and carpets to
+            the till, concrete to the paybill.
           */}
-          <ol className="flex flex-col gap-1.5 text-sm">
-            <li>
-              <span className="font-bold">Lipa na M-PESA</span>
-            </li>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <MpesaBadge />
+            <p className="text-sm font-bold">
+              Lipa na M-PESA &rarr;{" "}
+              {destination === "till" ? "Buy Goods and Services" : "Pay Bill"}
+            </p>
+          </div>
+
+          <dl className="mt-4 divide-y-2 divide-slab-100 border-y-2 border-slab-100">
+            {(destination === "till"
+              ? [["Till number", mpesaDestinations.till.tillNumber]]
+              : [
+                  ["Business number", mpesaDestinations.paybill.businessNumber],
+                  ["Account number", mpesaDestinations.paybill.accountNumber],
+                ]
+            ).map(([label, number]) => (
+              <div key={label} className="py-2.5">
+                <dt className="text-xs font-bold uppercase tracking-wide text-slab-600">
+                  {label}
+                </dt>
+                <dd className="flex items-center justify-between gap-3">
+                  <span className="font-mono text-2xl font-extrabold tabular-nums">{number}</span>
+                  <CopyButton value={number} label={`Copy ${label.toLowerCase()}`} />
+                </dd>
+              </div>
+            ))}
+            <div className="flex items-baseline justify-between gap-3 py-2.5">
+              <dt className="text-xs font-bold uppercase tracking-wide text-slab-600">
+                Amount due
+              </dt>
+              <dd className="text-xl font-extrabold tabular-nums">
+                {amountKes === null ? "—" : formatKes(amountKes)}
+              </dd>
+            </div>
+          </dl>
+
+          <ol className="mt-4 flex list-decimal flex-col gap-1 pl-5 text-sm marker:font-bold">
             {destination === "till" ? (
               <>
                 <li>
-                  &rarr; <span className="font-bold">Buy Goods and Services</span>
+                  On your phone, open M-PESA and choose Lipa na M-PESA, then
+                  Buy Goods and Services.
                 </li>
-                <li>
-                  &rarr; Till number{" "}
-                  <span className="font-mono text-base font-extrabold">
-                    {mpesaDestinations.till.tillNumber}
-                  </span>
-                </li>
+                <li>Enter the till number and the amount due.</li>
               </>
             ) : (
               <>
                 <li>
-                  &rarr; <span className="font-bold">Pay Bill</span>
+                  On your phone, open M-PESA and choose Lipa na M-PESA, then
+                  Pay Bill.
                 </li>
-                <li>
-                  &rarr; Business number{" "}
-                  <span className="font-mono text-base font-extrabold">
-                    {mpesaDestinations.paybill.businessNumber}
-                  </span>
-                </li>
-                <li>
-                  &rarr; Account number{" "}
-                  <span className="font-mono text-base font-extrabold">
-                    {mpesaDestinations.paybill.accountNumber}
-                  </span>
-                </li>
+                <li>Enter the business number, the account number and the amount due.</li>
               </>
             )}
-            <li>
-              &rarr; Amount{" "}
-              <span className="text-base font-extrabold">
-                {amountKes === null ? "—" : formatKes(amountKes)}
-              </span>
-            </li>
+            <li>Enter your PIN, then type the code from the M-Pesa SMS below.</li>
           </ol>
 
           <div className="mt-4">

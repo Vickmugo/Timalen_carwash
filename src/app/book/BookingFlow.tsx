@@ -95,7 +95,7 @@ import {
   withoutCovered,
 } from "@/lib/booking";
 import type { Slot } from "@/lib/slots";
-import { getBookableDates, getDayHours, holdMinutesFor } from "@/lib/slots";
+import { TOO_SOON_MESSAGE, getBookableDates, getDayHours, holdMinutesFor } from "@/lib/slots";
 import { weekdayOfDateKey } from "@/lib/nairobi-time";
 import { compactErrors, phoneError, requiredText } from "@/lib/validate";
 
@@ -491,6 +491,17 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
     if (failure?.error === "phone_limit") {
       setPaymentError(failure.detail ?? "This number already has the most upcoming bookings we take; call us to add more.");
       setSubmitting(false);
+      return;
+    }
+
+    // The time passed, or came inside the lead time, while the form was
+    // open. Same way back to the grid, with the server's sentence.
+    if (failure?.error === "too_soon") {
+      setSelectedTime(null);
+      setPaymentError(failure.detail ?? TOO_SOON_MESSAGE);
+      setSubmitting(false);
+      setStep(1);
+      void reloadSlots();
       return;
     }
 

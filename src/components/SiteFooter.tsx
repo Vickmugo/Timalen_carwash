@@ -3,11 +3,11 @@ import {
   business,
   contactNumbers,
   hasEmail,
-  hasTillNumber,
   hoursSummary,
   telHref,
   whatsappHref,
 } from "@/data/business";
+import { mpesaDestinations } from "@/data/config";
 
 export function SiteFooter() {
   return (
@@ -80,36 +80,45 @@ export function SiteFooter() {
           <p className="mt-2 text-sm">{hoursSummary}</p>
 
           {/*
-            THE TILL, ON EVERY PAGE. It was only on the receipt, which a
-            customer sees after they have already committed — no use to
-            somebody standing at the bay with a phone in their hand, or to
-            anybody paying for concrete that was never booked online at all.
+            BOTH DESTINATIONS, ON EVERY PAGE, EACH NAMED BY WHAT IT PAYS FOR.
+            This used to show only the wash till, cart and checkout
+            included — so a customer paying for concrete from the footer
+            paid the wrong account, and staff could not find it on the
+            statement. One short line each, numbers from
+            `mpesaDestinations` and nowhere else.
 
-            Worded exactly as the receipt words it, and for the same reason:
-            "Buy Goods and Services" is the menu item on the handset, and a
-            Buy Goods till takes no account number. See the note in
-            src/components/Receipt.tsx.
-
-            Gated on `hasTillNumber` like the receipt line, so blanking the
-            field in business.ts drops the whole block rather than printing
-            a payment instruction with the number missing off the end.
+            "Buy Goods" and "Pay Bill" are the handset's menu words. A
+            Buy Goods till takes no account number; a paybill needs both.
           */}
-          {hasTillNumber ? (
-            <div className="mt-4">
-              <h3 className="text-xs font-bold uppercase tracking-wide text-slab-400">
-                Pay by M-Pesa
-              </h3>
-              <p className="mt-1 text-sm">
-                Buy Goods and Services, till{" "}
-                <span className="font-mono font-bold text-slab-50">
-                  {business.tillNumber}
-                </span>
-              </p>
-              <p className="text-xs text-slab-500">
-                No account or reference number.
-              </p>
-            </div>
-          ) : null}
+          <div className="mt-4">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-slab-400">
+              Pay by M-Pesa
+            </h3>
+            <dl className="mt-1 space-y-1.5 text-sm">
+              <div>
+                <dt className="text-slab-400">Car wash &amp; carpets</dt>
+                <dd>
+                  Buy Goods, till{" "}
+                  <span className="font-mono font-bold text-slab-50">
+                    {mpesaDestinations.till.tillNumber}
+                  </span>
+                </dd>
+              </div>
+              <div>
+                <dt className="text-slab-400">Concrete</dt>
+                <dd>
+                  Pay Bill{" "}
+                  <span className="font-mono font-bold text-slab-50">
+                    {mpesaDestinations.paybill.businessNumber}
+                  </span>
+                  , account{" "}
+                  <span className="font-mono font-bold text-slab-50">
+                    {mpesaDestinations.paybill.accountNumber}
+                  </span>
+                </dd>
+              </div>
+            </dl>
+          </div>
 
           {/*
             THE STAFF DOOR. Deliberately quiet — small, grey, no button, and
@@ -133,13 +142,6 @@ export function SiteFooter() {
             Staff
           </Link>
         </div>
-      </div>
-
-      <div className="border-t border-slab-800 px-4 py-4">
-        <p className="mx-auto max-w-5xl text-xs text-slab-500">
-          Demo build. Bookings, orders and payments on this site are simulated
-          and no money is taken.
-        </p>
       </div>
     </footer>
   );

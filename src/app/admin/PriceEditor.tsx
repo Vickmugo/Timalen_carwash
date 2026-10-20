@@ -314,7 +314,7 @@ export function PriceEditor() {
           height below, and there is no row for the product as a whole.
         */}
         <p className="mt-1 text-sm text-slab-600">
-          Road kerbs is still a placeholder nobody has confirmed. Correcting
+          The road kerbs price is still unconfirmed. Correcting
           it here is the point of this screen.
         </p>
         <p className="mt-1.5 text-sm text-slab-600">

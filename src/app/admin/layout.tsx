@@ -12,7 +12,7 @@ import { StaffNameProvider } from "./StaffName";
  */
 export const metadata: Metadata = {
   title: "Staff view",
-  description: "Bookings, orders and quote requests recorded by this demo.",
+  description: "Bookings, orders, payments and quote requests for the yard.",
   robots: { index: false, follow: false },
 };
 
