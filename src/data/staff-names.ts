@@ -2,14 +2,14 @@
  * =====================================================================
  * WHO MAY SIGN IN UNDER WHICH FIRST NAME.
  * ---------------------------------------------------------------------
- * TODO / OWNER TO FILL IN: the first names of the people who work the
- * counter, spelled the way they should appear in the history and on
- * receipts, e.g. ["Wanjiru", "Otieno"]. No names have been invented here.
+ * The first names of the people who work the counter, spelled the way
+ * they should appear in the history and on receipts. The name typed at
+ * /login must match one of them (case is ignored) and the spelling below
+ * is what gets stored. Add or remove a name here and redeploy.
  *
- * WHILE THIS IS EMPTY, any name that passes the basic checks in
- * `normaliseStaffName` (src/lib/session.ts) is accepted at sign-in. Once it
- * has entries, the name typed at /login must match one of them (case is
- * ignored) and the spelling below is what gets stored.
+ * If the list were ever emptied, any name passing the basic checks in
+ * `normaliseStaffName` (src/lib/session.ts) would be accepted — keep at
+ * least one entry.
  *
  * SERVER-ONLY, AND IT MUST STAY THAT WAY. This is deliberately not in
  * src/data/config.ts: that file is imported by client components, so

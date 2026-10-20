@@ -1,17 +1,15 @@
 import type { Metadata } from "next";
-import { NotFound } from "@/components/Receipt";
 import { getOrderByRef } from "@/lib/orders-db";
-import { isRef } from "@/lib/format";
-import { ReceiptFor } from "../../ReceiptFor";
+import { ReceiptPage } from "../../receipt-page";
 
 /**
  * /receipt/order/[ref] — the official receipt for one concrete order, once
  * staff have confirmed the payment. Same arrangement as the booking
- * receipt next door; read app/receipt/booking/[ref]/page.tsx.
+ * receipt; see src/app/receipt/receipt-page.tsx.
  *
- * FROM THE SERVER now. Orders placed before the checkout moved to the
- * database exist only in the browser that placed them; they have no
- * payment record and no official receipt, and land on "not found" here.
+ * Orders placed before the checkout moved to the database exist only in
+ * the browser that placed them; they have no payment record and no
+ * official receipt.
  */
 export const metadata: Metadata = {
   title: "Order receipt",
@@ -21,23 +19,16 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
-export default async function OrderReceiptPage({
-  params,
-}: {
-  params: Promise<{ ref: string }>;
-}) {
-  const { ref } = await params;
-  const order = isRef(ref, "OR") ? await getOrderByRef(ref) : null;
-
-  if (!order) {
-    return <NotFound reference={ref} backHref="/products" backLabel="Browse products" />;
-  }
-
+export default function OrderReceiptPage({ params }: { params: Promise<{ ref: string }> }) {
   return (
-    <ReceiptFor
-      reference={order.ref}
-      payment={order.payment}
-      backHref={`/checkout/confirmed?ref=${encodeURIComponent(order.ref)}`}
+    <ReceiptPage
+      params={params}
+      config={{
+        prefix: "OR",
+        load: getOrderByRef,
+        backHref: (ref) => `/checkout/confirmed?ref=${encodeURIComponent(ref)}`,
+        notFoundBack: { href: "/products", label: "Browse products" },
+      }}
     />
   );
 }

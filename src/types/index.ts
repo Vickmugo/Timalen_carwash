@@ -438,7 +438,7 @@ export interface ReceiptRecord {
   seq: number;
   status: ReceiptStatus;
   issuedAt: string;
-  /** Self-reported "Acting as" name. */
+  /** The staff session's name, self-reported at sign-in. */
   issuedBy: string;
   amountKes: number;
   method: PaymentMethod;
@@ -458,10 +458,10 @@ export type JobStatus = "booked" | "in_progress" | "done" | "cancelled" | "no_sh
 /**
  * ONE STATUS CHANGE, AND THE NAME OF WHOEVER SAYS THEY MADE IT.
  *
- * Written by the staff view when someone changes a payment or quote status.
- * `by` comes from the "Acting as" field, which is SELF-REPORTED AND
- * UNVERIFIED — read the warning at the top of src/data/admin-users.ts
- * before relying on it for anything. It is a name tag, not an identity.
+ * Written by the server when staff change a payment, job or quote status.
+ * `by` is the first name on the signed staff session, which is
+ * SELF-REPORTED AND UNVERIFIED — typed at sign-in, see
+ * src/lib/session.ts. It is a name tag, not an identity.
  */
 export interface StatusChange {
   /**
@@ -673,8 +673,8 @@ interface ChangeRequestBase {
   status: ChangeRequestStatus;
   createdAt: string;
   /**
-   * Self-reported name from "Acting as", or `UNATTRIBUTED`. Same caveat as
-   * everywhere else in this app — see src/data/admin-users.ts.
+   * The staff session's name (self-reported at sign-in), or `UNATTRIBUTED`
+   * on older entries. See src/lib/session.ts.
    */
   by: string;
   /** Free text. Always present, often empty. */

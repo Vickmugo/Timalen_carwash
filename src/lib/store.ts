@@ -25,8 +25,6 @@
 import { useSyncExternalStore } from "react";
 import type {
   Booking,
-  ChangeRequest,
-  ChangeRequestStatus,
   Order,
   PaymentStatus,
   QuoteRequest,
@@ -39,10 +37,10 @@ const KEYS = {
   orders: "demo.orders",
   quotes: "demo.quotes",
   /*
-    Staff-raised requests to change what the site says. Stored beside the
-    customer records because it is the same browser and the same mechanism —
-    but it is NOT the same kind of thing, and the staff view says so loudly.
-    See src/lib/change-requests.ts.
+    The old localStorage home of staff change requests. Nothing reads or
+    writes it any more — they live in `change_requests` now
+    (src/lib/change-requests-db.ts). The key stays listed only so "clear
+    all" still removes anything left behind in this browser.
   */
   changeRequests: "demo.changeRequests",
 } as const;
@@ -53,7 +51,6 @@ type StoreKey = keyof typeof KEYS;
 const EMPTY_BOOKINGS: Booking[] = [];
 const EMPTY_ORDERS: Order[] = [];
 const EMPTY_QUOTES: QuoteRequest[] = [];
-const EMPTY_CHANGE_REQUESTS: ChangeRequest[] = [];
 
 /* --------------------------- subscription -------------------------- */
 
@@ -179,65 +176,6 @@ export function useQuotes(): QuoteRequest[] {
   return useSyncExternalStore(subscribe, getQuotes, () => EMPTY_QUOTES);
 }
 
-/* --------------------- Content-change requests -------------------- */
-
-/**
- * Newest first — the opposite of the bookings sort, and on purpose.
- *
- * A booking list is a diary and reads forwards. This is a to-do list: the
- * thing just drafted is the thing about to be sent, and it should not be at
- * the bottom of the page behind a month of requests already dealt with.
- */
-export function getChangeRequests(): ChangeRequest[] {
-  return sortedBy(
-    read<ChangeRequest>("changeRequests", EMPTY_CHANGE_REQUESTS),
-    (a, b) => b.createdAt.localeCompare(a.createdAt),
-  );
-}
-
-export function addChangeRequest(request: ChangeRequest): void {
-  write("changeRequests", [
-    ...read<ChangeRequest>("changeRequests", EMPTY_CHANGE_REQUESTS),
-    request,
-  ]);
-}
-
-export function useChangeRequests(): ChangeRequest[] {
-  return useSyncExternalStore(
-    subscribe,
-    getChangeRequests,
-    () => EMPTY_CHANGE_REQUESTS,
-  );
-}
-
-/**
- * Not routed through `writeStatusChange` below, and the reason is types
- * rather than taste: `ChangeRequest` is a discriminated union, so the
- * `Partial<T>` spread that helper performs widens the record to something
- * TypeScript can no longer prove is a valid member of the union. The
- * history stamping is shared — `prependChange` is the part that must never
- * be forgotten, and it is not duplicated here.
- */
-export function updateChangeRequestStatus(
-  ref: string,
-  status: ChangeRequestStatus,
-  by: string,
-): void {
-  const next = read<ChangeRequest>(
-    "changeRequests",
-    EMPTY_CHANGE_REQUESTS,
-  ).map((request) =>
-    request.ref === ref
-      ? {
-          ...request,
-          status,
-          history: prependChange(request.history, status, by),
-        }
-      : request,
-  );
-  write("changeRequests", next);
-}
-
 /* ------------------------ Status changes -------------------------- */
 
 /**
@@ -251,8 +189,8 @@ export function updateChangeRequestStatus(
  *
  * `by` is passed in rather than read from the session inside here, so the
  * call site shows what is being recorded instead of picking it up
- * invisibly. It is a self-reported name and NOTHING MORE — the warning at
- * the top of src/data/admin-users.ts is the important reading here.
+ * invisibly. It is a self-reported name and NOTHING MORE — see the header
+ * of src/lib/session.ts.
  */
 
 /**

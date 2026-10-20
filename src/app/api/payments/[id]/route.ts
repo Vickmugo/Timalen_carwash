@@ -1,15 +1,16 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { resolvePayment, type ResolveAction } from "@/lib/payments-db";
+import { readJsonBody } from "@/lib/request-body";
 import { getStaffSession } from "@/lib/staff-guard";
 
 /**
  * =====================================================================
  * /api/payments/[id] — verify, reject, or record cash. STAFF ONLY.
  * ---------------------------------------------------------------------
- *   POST { action: "verify", by }
- *   POST { action: "reject", by, reason }            reason required
- *   POST { action: "cash_received", by, amountReceivedKes? }
+ *   POST { action: "verify" }
+ *   POST { action: "reject", reason }                 reason required
+ *   POST { action: "cash_received", amountReceivedKes? }
  *
  * The ONLY way a payment leaves `claimed` or `cash_due`, and it goes
  * through `resolve_payment()` in the database, which issues the receipt in
@@ -17,8 +18,9 @@ import { getStaffSession } from "@/lib/staff-guard";
  * request; the rules about which status may follow which live in that
  * function, so they hold however it is called.
  *
- * `by` is the "Acting as" name — self-reported and unverified, a name tag
- * on the change. See src/data/admin-users.ts.
+ * Who did it is the first name on the signed staff session, stamped here;
+ * a name in the body is ignored. It is still self-reported (typed at
+ * sign-in, not an identity) — see src/lib/session.ts.
  * =====================================================================
  */
 
@@ -43,12 +45,13 @@ export async function POST(
   const { id } = await params;
   if (!UUID.test(id)) return json({ error: "not_found" }, 404);
 
-  let body: { action?: unknown; reason?: unknown; amountReceivedKes?: unknown };
-  try {
-    body = (await request.json()) as typeof body;
-  } catch {
-    return json({ error: "bad_request", detail: "Body is not JSON." }, 400);
-  }
+  const parsed = await readJsonBody<{
+    action?: unknown;
+    reason?: unknown;
+    amountReceivedKes?: unknown;
+  } | null>(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body ?? {};
 
   const action = body.action as ResolveAction;
   if (!ACTIONS.includes(action)) {

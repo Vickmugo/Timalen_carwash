@@ -35,21 +35,11 @@ export function formatShortDate(dateKey: string): string {
 }
 
 /**
- * "3 Sep, 14:20" — an ISO timestamp as staff read it in the admin tables.
- *
- * Date and time together, because "when did this come in" is the question
- * being asked of a quote request, and the answer is often "an hour ago".
- * Renders "-" for a malformed value rather than "Invalid Date".
+ * "3 Sep, 14:20" — an ISO timestamp as staff read it in the admin tables
+ * and as a receipt prints it. Always in Kenyan time, wherever it renders:
+ * src/lib/format-time.ts.
  */
-export function formatTimestamp(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "-";
-  const day = `${date.getDate()} ${date.toLocaleString("en-KE", { month: "short" })}`;
-  const time = `${String(date.getHours()).padStart(2, "0")}:${String(
-    date.getMinutes(),
-  ).padStart(2, "0")}`;
-  return `${day}, ${time}`;
-}
+export { formatTimestamp } from "./format-time";
 
 /** Minutes since midnight -> "HH:mm". */
 export function minutesToTime(minutes: number): string {

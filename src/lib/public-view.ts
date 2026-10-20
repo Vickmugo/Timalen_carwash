@@ -20,6 +20,7 @@
  */
 
 import { bookingLines, bookingVehicleTypeName } from "@/lib/booking";
+import { firstNameOf, maskPhone } from "@/lib/mask";
 import { paymentRecordLabel } from "@/lib/payments";
 import type {
   Booking,
@@ -74,21 +75,8 @@ export interface PublicOrder {
   payment?: PublicPayment;
 }
 
-/** "Wanjiru Kamau" -> "Wanjiru". */
-export function firstNameOf(fullName: string): string {
-  return fullName.trim().split(/\s+/)[0] ?? "";
-}
-
-/**
- * "0712 345 678", "+254712345678", "254712345678" -> "07•• ••• 678".
- * Anything too short to mask safely becomes bullets only.
- */
-export function maskPhone(phone: string): string {
-  let digits = phone.replace(/\D/g, "");
-  if (digits.startsWith("254")) digits = `0${digits.slice(3)}`;
-  if (digits.length < 7) return "••• •••";
-  return `${digits.slice(0, 2)}•• ••• ${digits.slice(-3)}`;
-}
+// Shared with the public receipt (src/lib/receipt-view.ts).
+export { firstNameOf, maskPhone };
 
 const LEGACY_LABELS: Record<PaymentStatus, string> = {
   paid: "Paid",

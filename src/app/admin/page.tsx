@@ -6,33 +6,26 @@
  * ---------------------------------------------------------------------
  * This route is not public. src/proxy.ts matches /admin and checks for a
  * valid session cookie before Next.js renders anything here; without one it
- * redirects to /login, which takes the shared password in ADMIN_PASSWORD.
- * If that variable is unset the route is refused outright rather than
- * opened. The mechanics are documented in src/lib/session.ts.
+ * redirects to /login, which takes a first name and the shared password in
+ * ADMIN_PASSWORD. If ADMIN_PASSWORD or SESSION_SECRET is unset the route is
+ * refused outright rather than opened. The mechanics are documented in
+ * src/lib/session.ts; failed sign-ins are rate-limited per IP.
  *
  * That is still a STOPGAP, not production auth. One shared password means
- * no per-person identity, no roles, and no rate limiting. What sessions
- * added over the HTTP Basic Auth this replaced is an expiry, a sign-out
- * button (top right), and a login page that can explain itself. It is
- * enough to stop a URL being passed around; it is not enough to protect a
- * real customer database.
+ * no per-person identity and no roles. It is enough to stop a URL being
+ * passed around; it is not per-person accountability.
  *
- * The "Acting as" field below does NOT fix that. It is a self-reported name
- * tag stamped onto status changes so colleagues can see who did what — read
- * the warning at the top of src/data/admin-users.ts before treating a name
- * in the change history as established fact. It is a courtesy, not evidence.
+ * The NAME on every change is the first name typed at sign-in, carried in
+ * the signed session and stamped by the server — no request from this page
+ * sends one. It is still self-reported: anyone with the password can type
+ * any listed name, so a name in the history is a courtesy, not evidence.
  *
- * STILL TO DO, when there is a backend and the records stop living in one
- * browser's localStorage:
- *   - real accounts (Auth.js / Clerk / Supabase Auth — whatever the backend
- *     ends up being), replacing the one shared password
- *   - move the reads to a server component or API route that verifies the
- *     session server-side; a client-side check alone protects nothing
- *   - a role check, not just "signed in"
- *   - rate limiting on /api/login
- *   - a real audit trail written server-side from the verified session,
- *     replacing the self-reported name, and covering "clear all" too — that
- *     button is still the one destructive action nothing records
+ * Every read goes through an API route that checks the session server-side.
+ *
+ * STILL TO DO:
+ *   - real per-person accounts and a role check, replacing the one shared
+ *     password and the self-reported name
+ *   - "clear all" is still the one destructive action nothing records
  *
  * ---------------------------------------------------------------------
  * THIS PAGE IS A TOOL, NOT A SHOWCASE.
@@ -90,7 +83,7 @@ import type {
 } from "@/types";
 import type { QueuedPayment } from "@/lib/payments-db";
 import { isSettled } from "@/lib/payments";
-import { patchStaff, useStaffList } from "@/lib/use-staff-list";
+import { patchStaff, postStaff, useStaffList } from "@/lib/use-staff-list";
 import {
   NOT_LIVE_BANNER,
   NOT_LIVE_CARD,
@@ -106,7 +99,6 @@ import {
   formatLongDate,
   formatShortDate,
   formatTimestamp,
-  makeRef,
   toDateKey,
 } from "@/lib/format";
 import {
@@ -116,10 +108,7 @@ import {
 } from "@/lib/booking";
 import { cartLineKey, cartLineName } from "@/lib/cart-line";
 import {
-  addChangeRequest,
   clearAll,
-  updateChangeRequestStatus,
-  useChangeRequests,
   useIsHydrated,
 } from "@/lib/store";
 import {
@@ -549,8 +538,8 @@ function SignOutButton() {
  * not real authentication" between the heading and the first booking is a
  * cost paid on every one of those visits.
  *
- * So the two facts that change what someone does — shared password, records
- * only in this browser — stay on the summary line, always visible, and the
+ * So the fact that changes what someone does — a shared password — stays
+ * on the summary line, always visible, and the
  * full explanation is one click behind a native <details>. Nothing is
  * hidden that a person needs in order to avoid a mistake.
  */
@@ -593,10 +582,8 @@ function AboutPanel() {
           <code className="font-mono">src/proxy.ts</code>.
         </p>
         <p className="mt-2 max-w-prose text-sm text-slab-700">
-          Change requests are still stored in this browser only. They will
-          not appear on another device or for a colleague, and clearing site
-          data erases them. Everything else on this page, quote requests
-          included, is read from the server.
+          Everything on this page, change requests included, is read from
+          the server, so it is the same on every device.
         </p>
       </details>
     </div>
@@ -732,16 +719,12 @@ function StatusLog({ history }: { history?: StatusChange[] }) {
 
 export default function AdminPage() {
   /*
-    BOOKINGS COME FROM THE DATABASE. Everything else on this page is still
-    a subscribed read of this browser's localStorage — orders, quotes and
-    change requests were explicitly out of scope for the move, so for now
-    this screen reads from two places at once. That split is deliberate and
-    temporary, not a bug.
+    EVERY LIST ON THIS PAGE COMES FROM THE DATABASE, through staff-only API
+    routes: bookings here, the rest through `useStaffList`.
 
     One consequence worth knowing at the counter: a booking made by a
     customer while this tab is open does not appear until it refreshes.
-    The localStorage sections below still update live. See the note in
-    src/lib/use-server-bookings.ts.
+    See the note in src/lib/use-server-bookings.ts.
   */
   const {
     bookings,
@@ -1386,7 +1369,7 @@ export default function AdminPage() {
               onClick={() => {
                 if (
                   window.confirm(
-                    "Delete the change requests, and any old quote requests and pre-server orders, stored in this browser? Bookings, orders, quote requests, payments and receipts on the server are not affected.",
+                    "Delete any old change requests, quote requests and pre-server orders left in this browser? Nothing on the server is affected, change requests included.",
                   )
                 ) {
                   clearAll();
@@ -1489,7 +1472,7 @@ function BookingRow({
       </td>
       {/*
         THE WORK, separately from the money. Every change goes to
-        `status_changes` with the Acting-as name, alongside the payment
+        `status_changes` with the session's name, alongside the payment
         events the queues write, so the log under it is the whole story.
       */}
       <td className={td} data-label="Job">
@@ -1882,11 +1865,11 @@ function KindPicker({
  * cleared, because these come in batches — a price review is six of these
  * in a row, not one.
  */
-function ChangeRequestForm() {
-  const staffName = useStaffName();
+function ChangeRequestForm({ onSaved }: { onSaved: () => Promise<void> }) {
   const [kind, setKind] = useState<ChangeRequestKind>("new_item");
   const [error, setError] = useState<string | null>(null);
   const [savedRef, setSavedRef] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   // Shared across kinds.
   const [note, setNote] = useState("");
@@ -1943,18 +1926,16 @@ function ChangeRequestForm() {
     setIntent("out_of_stock");
   }
 
-  function save() {
+  /*
+    The server mints the ref, the time and the name (from the staff
+    session) and checks every field again; this only catches the obvious
+    before a round trip.
+  */
+  async function save() {
     setSavedRef(null);
 
-    const base = {
-      ref: makeRef("CR"),
-      status: "draft" as const,
-      createdAt: new Date().toISOString(),
-      by: staffName,
-      note: note.trim(),
-    };
-
-    let request: ChangeRequest;
+    const base = { note: note.trim() };
+    let request: Record<string, unknown>;
 
     if (kind === "new_item") {
       if (!name.trim()) {
@@ -1990,15 +1971,27 @@ function ChangeRequestForm() {
         ...base,
         kind: "stock",
         subjectId: subject.id,
-        subjectLabel: subject.label,
         intent,
       };
     }
 
-    addChangeRequest(request);
+    setSaving(true);
+    const result = await postStaff("/api/change-requests", request);
+    setSaving(false);
+    if (!result.ok) {
+      setError(
+        typeof result.data.detail === "string"
+          ? result.data.detail
+          : result.status === 401
+            ? "Your session has expired. Reload the page to sign in again."
+            : "Could not save the request. Nothing was stored — try again.",
+      );
+      return;
+    }
     setError(null);
-    setSavedRef(request.ref);
+    setSavedRef(String(result.data.ref));
     resetFields();
+    await onSaved();
   }
 
   return (
@@ -2195,13 +2188,15 @@ function ChangeRequestForm() {
           className="mt-4 rounded-slab border-2 border-slab-300 bg-white px-3 py-2 text-sm text-slab-700"
         >
           Saved as <span className="font-mono font-bold">{savedRef}</span>. It
-          is a draft in this browser — nothing has been sent and nothing on
-          the site has changed.
+          is a draft — nothing has been sent and nothing on the site has
+          changed.
         </p>
       ) : null}
 
       <div className="mt-4">
-        <Button onClick={save}>Save as draft</Button>
+        <Button onClick={() => void save()} disabled={saving}>
+          {saving ? "Saving..." : "Save as draft"}
+        </Button>
       </div>
     </div>
   );
@@ -2221,8 +2216,13 @@ function ChangeRequestForm() {
  * readable before it is sent, and when the clipboard is refused it is the
  * fallback — selectable text on the page.
  */
-function ChangeRequestCard({ request }: { request: ChangeRequest }) {
-  const staffName = useStaffName();
+function ChangeRequestCard({
+  request,
+  onStatus,
+}: {
+  request: ChangeRequest;
+  onStatus: (status: ChangeRequestStatus) => void;
+}) {
   const text = requestText(request);
 
   return (
@@ -2322,9 +2322,7 @@ function ChangeRequestCard({ request }: { request: ChangeRequest }) {
             label={`Change status for request ${request.ref}`}
             value={request.status}
             options={CHANGE_REQUEST_STATUSES}
-            onChange={(status) =>
-              updateChangeRequestStatus(request.ref, status, staffName)
-            }
+            onChange={onStatus}
           />
           <StatusLog history={request.history} />
         </div>
@@ -2354,8 +2352,24 @@ function Detail({
 }
 
 function ChangeRequestsSection() {
-  const requests = useChangeRequests();
+  /*
+    FROM THE SERVER, like every other list here. These used to live in this
+    browser's localStorage only; see src/lib/change-requests-db.ts.
+  */
+  const list = useStaffList<ChangeRequest>("/api/change-requests", "requests", "change requests");
+  const requests = list.items;
+  const [writeError, setWriteError] = useState<string | null>(null);
   const [status, setStatus] = useState<ChangeRequestStatus | "all">("all");
+
+  async function changeStatus(ref: string, next: ChangeRequestStatus) {
+    setWriteError(null);
+    const result = await patchStaff(`/api/change-requests/${encodeURIComponent(ref)}`, { status: next });
+    if (!result.ok) {
+      setWriteError(`Could not update ${ref}. The change was not saved — try again.`);
+      return;
+    }
+    await list.refresh();
+  }
 
   const shown = useMemo(
     () =>
@@ -2380,7 +2394,7 @@ function ChangeRequestsSection() {
           ? ""
           : `showing ${shown.length} of ${requests.length}`,
       ]}
-      /* Newest first, always — see `getChangeRequests` in src/lib/store.ts. */
+      /* Newest first, always — see `listChangeRequests` in src/lib/change-requests-db.ts. */
       sort={null}
       filter={
         requests.length > 0 ? (
@@ -2399,9 +2413,16 @@ function ChangeRequestsSection() {
       }
     >
       <NotLiveBanner />
-      <ChangeRequestForm />
+      <ChangeRequestForm onSaved={list.refresh} />
 
-      {shown.length === 0 ? (
+      {list.error || writeError ? (
+        <p className="m-3 rounded-slab border-2 border-fail bg-fail-tint px-3 py-2 text-sm text-slab-800">
+          {writeError ?? list.error}
+        </p>
+      ) : null}
+      {list.loading ? (
+        <p className="p-4 text-sm text-slab-500">Loading change requests...</p>
+      ) : shown.length === 0 ? (
         <EmptyState filtered={status !== "all"} onClear={() => setStatus("all")}>
           No change requests yet. Draft one above when a price moves or the
           yard starts making something new.
@@ -2409,7 +2430,11 @@ function ChangeRequestsSection() {
       ) : (
         <ul className="flex flex-col gap-3 p-3 md:p-4">
           {shown.map((request) => (
-            <ChangeRequestCard key={request.ref} request={request} />
+            <ChangeRequestCard
+              key={request.ref}
+              request={request}
+              onStatus={(next) => void changeStatus(request.ref, next)}
+            />
           ))}
         </ul>
       )}

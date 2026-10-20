@@ -4,10 +4,9 @@
  * THE NAME ON THE STAFF SESSION, FOR THE CLIENT COMPONENTS THAT SHOW IT.
  *
  * Read once, server-side, in ./layout.tsx from the signed cookie, and
- * handed down here. It is for DISPLAY and for the few records that still
- * live in this browser's localStorage (change requests). Everything written
- * to the server is attributed by the server from the cookie itself; no
- * request sends a name.
+ * handed down here. It is for DISPLAY only. Everything written is
+ * attributed by the server from the cookie itself; no request sends a
+ * name.
  */
 
 import { createContext, useContext, useEffect } from "react";

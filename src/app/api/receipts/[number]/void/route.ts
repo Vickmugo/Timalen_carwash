@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { voidReceipt } from "@/lib/payments-db";
+import { readJsonBody } from "@/lib/request-body";
 import { getStaffSession } from "@/lib/staff-guard";
 
 /**
@@ -33,12 +34,9 @@ export async function POST(
   const { number } = await params;
   if (!RECEIPT_NUMBER.test(number)) return json({ error: "not_found" }, 404);
 
-  let body: { reason?: unknown };
-  try {
-    body = (await request.json()) as typeof body;
-  } catch {
-    return json({ error: "bad_request", detail: "Body is not JSON." }, 400);
-  }
+  const parsed = await readJsonBody<{ reason?: unknown } | null>(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body ?? {};
   const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 500) : "";
   if (!reason) {
     return json({ error: "bad_request", detail: "Say why the receipt is being voided." }, 400);

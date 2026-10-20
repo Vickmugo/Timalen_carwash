@@ -271,8 +271,9 @@ export type ResolvePaymentResult =
  * Verify, reject or record cash, by calling `resolve_payment()`.
  *
  * One RPC, so one transaction: the status, the parent's mirror, the audit
- * row and the receipt either all happen or none do. `by` is the
- * self-reported "Acting as" name.
+ * row and the receipt either all happen or none do. `by` is the name on
+ * the signed staff session, passed in by the route: self-reported at
+ * sign-in (src/lib/session.ts).
  */
 export async function resolvePayment(
   paymentId: string,
