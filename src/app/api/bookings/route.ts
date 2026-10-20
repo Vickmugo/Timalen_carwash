@@ -6,7 +6,7 @@ import { flatVehicleLines, subsumption, toLines, withoutCovered } from "@/lib/bo
 import { countUpcomingBookingsForPhone, createBooking, listBookings } from "@/lib/bookings-db";
 import type { NewBookingInput } from "@/lib/bookings-db";
 import { getBookedIntervals } from "@/lib/bookings-db";
-import { generateSlots, getBookableDates, holdMinutesFor } from "@/lib/slots";
+import { generateSlots, getBookableDates, holdMinutesFor, todayKey } from "@/lib/slots";
 import { isStaffRequest } from "@/lib/staff-guard";
 import { cleanCustomerName, cleanText, readJsonBody } from "@/lib/request-body";
 import { LIMITS, rateLimit, tooManyRequests } from "@/lib/rate-limit";
@@ -116,6 +116,10 @@ export async function POST(request: NextRequest) {
   const parsed = await readJsonBody<BookingRequestBody>(request);
   if (!parsed.ok) return parsed.response;
   const body = parsed.body ?? {};
+
+  // One instant for every check below, read as Nairobi time by the slot
+  // helpers, so the window, the grid and the cap agree on what "today" is.
+  const now = new Date();
 
   /* ---- the vehicle: a grid column, or a flat-priced vehicle ---- */
   const vehicleTypeId = asTrimmedString(body.vehicleTypeId);
@@ -231,10 +235,12 @@ export async function POST(request: NextRequest) {
      turns up. The per-IP limit only stops floods (many customers share a
      carrier's IP); this cap is what stops one number filling the diary.
      Matched on the canonical number, so "+254 712…" and "0712…" are the
-     same phone. BEST-EFFORT: count-then-insert, so simultaneous requests
+     same phone. Counted from today in Nairobi — not the first bookable
+     date, which skips today once the yard has closed. BEST-EFFORT:
+     count-then-insert, so simultaneous requests
      can overshoot by a few; accepted, it is a speed bump, not a lock. */
   try {
-    const upcoming = await countUpcomingBookingsForPhone(phone, getBookableDates()[0]);
+    const upcoming = await countUpcomingBookingsForPhone(phone, todayKey(now));
     if (upcoming >= MAX_UPCOMING_PER_PHONE) {
       return json(
         {
@@ -259,7 +265,7 @@ export async function POST(request: NextRequest) {
   const date = asTrimmedString(body.date);
   const startTime = asTrimmedString(body.startTime);
 
-  if (!getBookableDates().includes(date)) {
+  if (!getBookableDates(now).includes(date)) {
     return json(
       { error: "bad_request", detail: "That date is not open for booking." },
       400,
@@ -268,7 +274,7 @@ export async function POST(request: NextRequest) {
 
   let slots;
   try {
-    slots = generateSlots(date, durationMinutes, await getBookedIntervals(date));
+    slots = generateSlots(date, durationMinutes, await getBookedIntervals(date), now);
   } catch (error) {
     console.error("[api/bookings] slot lookup failed:", error);
     return json({ error: "read_failed" }, 503);
