@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 import type { NextConfig } from "next";
 
@@ -51,9 +52,24 @@ const SECURITY_HEADERS = [
 /** robots.txt is a request, not a control; this header is the backstop. */
 const NOINDEX = [{ key: "X-Robots-Tag", value: "noindex, nofollow" }];
 
+/**
+ * THE M-PESA LOGO SLOT. The official artwork is supplied by the business,
+ * never drawn here; until a file exists at public/brand/mpesa-logo.svg
+ * (or .png / .webp) the payment card shows the site's own badge instead
+ * (src/components/MpesaBadge.tsx). Checked once at build time, so adding
+ * the file takes a redeploy and no page ever requests a logo that is not
+ * there.
+ */
+const MPESA_LOGO =
+  ["svg", "png", "webp"]
+    .map((ext) => `/brand/mpesa-logo.${ext}`)
+    .find((file) => existsSync(path.join(process.cwd(), "public", file))) ?? "";
+
 const nextConfig: NextConfig = {
   /** Stops advertising the framework and version on every response. */
   poweredByHeader: false,
+
+  env: { NEXT_PUBLIC_MPESA_LOGO: MPESA_LOGO },
 
   headers() {
     return Promise.resolve([

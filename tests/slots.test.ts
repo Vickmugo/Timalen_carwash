@@ -18,7 +18,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { addDaysToDateKey, nairobiNow, weekdayOfDateKey } from "../src/lib/nairobi-time";
-import { generateSlots, getBookableDates, todayKey } from "../src/lib/slots";
+import { checkSlot, generateSlots, getBookableDates, todayKey } from "../src/lib/slots";
 import type { Booking } from "../src/types";
 
 const NONE: Booking[] = [];
@@ -111,4 +111,33 @@ test("date keys step across month ends without a zone", () => {
   assert.equal(addDaysToDateKey("2026-10-31", 1), "2026-11-01");
   assert.equal(addDaysToDateKey("2026-12-31", 1), "2027-01-01");
   assert.equal(weekdayOfDateKey("2026-11-01"), 0);
+});
+
+/* ---- what /api/bookings answers for one start time (checkSlot) ---- */
+
+function booked(date: string, startTime: string, endTime: string): Booking {
+  return { date, startTime, endTime } as Booking;
+}
+
+test("a passed slot is too_soon, a taken slot is slot_taken, a free one is accepted", () => {
+  const now = new Date("2026-10-20T12:11:00Z"); // 15:11 Tuesday
+  const today = generateSlots("2026-10-20", 30, [booked("2026-10-20", "17:00", "17:30")], now);
+  assert.deepEqual(checkSlot(today, "14:00"), { ok: false, error: "too_soon" });
+  assert.deepEqual(checkSlot(today, "17:00"), { ok: false, error: "slot_taken" });
+  const free = checkSlot(today, "17:30");
+  assert.equal(free.ok, true);
+  assert.deepEqual(checkSlot(today, "03:00"), { ok: false, error: "bad_start" });
+});
+
+test("passed and taken at once: too_soon wins", () => {
+  const now = new Date("2026-10-20T12:11:00Z");
+  const today = generateSlots("2026-10-20", 30, [booked("2026-10-20", "14:00", "14:30")], now);
+  assert.deepEqual(checkSlot(today, "14:00"), { ok: false, error: "too_soon" });
+});
+
+test("tomorrow, a free slot is accepted and a taken one is slot_taken", () => {
+  const now = new Date("2026-10-20T12:11:00Z");
+  const tomorrow = generateSlots("2026-10-21", 30, [booked("2026-10-21", "09:00", "09:30")], now);
+  assert.equal(checkSlot(tomorrow, "08:00").ok, true);
+  assert.deepEqual(checkSlot(tomorrow, "09:00"), { ok: false, error: "slot_taken" });
 });

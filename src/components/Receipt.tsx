@@ -254,7 +254,12 @@ export function OfficialReceipt({
             Reference <span className="font-mono font-bold">{receipt.ref}</span>
           </p>
         </div>
-        <div className="text-right">
+        {/*
+          Left-aligned while it sits on its own line under the title (a
+          phone), right-aligned once it shares the line. Right-aligned on its
+          own line, the short label sat indented over the wider number.
+        */}
+        <div className="text-left sm:text-right">
           <p className="text-xs font-bold uppercase tracking-wide text-slab-600">
             Receipt no.
           </p>

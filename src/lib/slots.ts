@@ -159,3 +159,25 @@ export function generateSlots(
 
   return slots;
 }
+
+/** Said when a start time has passed or is inside the lead time. */
+export const TOO_SOON_MESSAGE =
+  "That time has passed or is too close to book. Please pick a later slot.";
+
+export type SlotCheck =
+  | { ok: true; slot: Slot }
+  | { ok: false; error: "bad_start" | "too_soon" | "slot_taken" };
+
+/**
+ * Whether `startTime` can be booked on a grid from `generateSlots`.
+ *
+ * A start that has passed or is too close says `too_soon`, and it wins over
+ * `slot_taken` when both are true, because `generateSlots` marks the time
+ * rule first. Only a start that is genuinely taken says `slot_taken`.
+ */
+export function checkSlot(slots: Slot[], startTime: string): SlotCheck {
+  const slot = slots.find((candidate) => candidate.startTime === startTime);
+  if (!slot) return { ok: false, error: "bad_start" };
+  if (slot.available) return { ok: true, slot };
+  return { ok: false, error: slot.reason === "too_soon" ? "too_soon" : "slot_taken" };
+}

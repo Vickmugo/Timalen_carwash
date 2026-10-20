@@ -6,7 +6,14 @@ import { flatVehicleLines, subsumption, toLines, withoutCovered } from "@/lib/bo
 import { countUpcomingBookingsForPhone, createBooking, listBookings } from "@/lib/bookings-db";
 import type { NewBookingInput } from "@/lib/bookings-db";
 import { getBookedIntervals } from "@/lib/bookings-db";
-import { generateSlots, getBookableDates, holdMinutesFor, todayKey } from "@/lib/slots";
+import {
+  TOO_SOON_MESSAGE,
+  checkSlot,
+  generateSlots,
+  getBookableDates,
+  holdMinutesFor,
+  todayKey,
+} from "@/lib/slots";
 import { isStaffRequest } from "@/lib/staff-guard";
 import { cleanCustomerName, cleanText, readJsonBody } from "@/lib/request-body";
 import { LIMITS, rateLimit, tooManyRequests } from "@/lib/rate-limit";
@@ -280,16 +287,22 @@ export async function POST(request: NextRequest) {
     return json({ error: "read_failed" }, 503);
   }
 
-  const slot = slots.find((candidate) => candidate.startTime === startTime);
-  if (!slot) {
+  const checked = checkSlot(slots, startTime);
+  if (!checked.ok && checked.error === "bad_start") {
     return json(
       { error: "bad_request", detail: "That is not a valid start time." },
       400,
     );
   }
-  if (!slot.available) {
+  // Passed, or inside the lead time: its own code and sentence, so the
+  // page does not tell the customer somebody else took it.
+  if (!checked.ok && checked.error === "too_soon") {
+    return json({ error: "too_soon", detail: TOO_SOON_MESSAGE }, 409);
+  }
+  if (!checked.ok) {
     return json({ error: "slot_taken" }, 409);
   }
+  const slot = checked.slot;
 
   /*
     A CODE ALREADY ON ANOTHER PAYMENT IS TURNED AWAY BEFORE THE SLOT IS

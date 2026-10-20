@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import { business, contactNumbers, hoursSummary, whatsappHref } from "@/data/business";
 import { useCart } from "@/lib/cart";
 
@@ -44,57 +45,190 @@ function Wordmark({ name }: { name: string }) {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Icons — drawn for this site. No brand marks: the chat bubble is a   */
+/* generic speech bubble, not the WhatsApp logo.                       */
+/* ------------------------------------------------------------------ */
+
+const ICON = "size-4 shrink-0";
+
+function ChatIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" className={ICON} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round">
+      <path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" />
+      <path d="M5.5 7h.01M8 7h.01M10.5 7h.01" strokeLinecap="round" strokeWidth="2" />
+    </svg>
+  );
+}
+
+function CartIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" className={ICON} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1.5 2h2l1.6 8h7.4l1.5-5.5H4.3" />
+      <circle cx="6" cy="13.25" r="1" />
+      <circle cx="11.5" cy="13.25" r="1" />
+    </svg>
+  );
+}
+
+function CalendarIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" className={ICON} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round">
+      <rect x="2" y="3" width="12" height="11" rx="1" />
+      <path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/*
+  EVERY HEADER CONTROL IS THE SAME BOX: 44px tall, the site's 4px corner,
+  bold uppercase label, FILLED. Outlines on charcoal read as unfinished, so
+  the secondary controls sit on slab-800 and only Book a Wash is amber.
+*/
+const CONTROL =
+  "flex min-h-11 shrink-0 items-center gap-2 rounded-slab border-2 px-3 text-sm font-bold uppercase tracking-wide whitespace-nowrap transition-colors duration-150 ease-plain";
+const SECONDARY =
+  "border-slab-800 bg-slab-800 text-slab-100 hover:border-slab-600 hover:bg-slab-700";
+
 /**
- * ONE number up here, not both.
- *
- * The header is already carrying a wordmark, four nav items and a cart on a
- * phone screen, and a second, near-identical phone number is the item that
- * makes a customer read instead of tap. So the primary line only — the
- * alternate is one scroll away in the footer, next to it, where somebody
- * who failed to get through has a reason to be looking.
- *
- * Styled as a nav link rather than as a button: hi-vis in this header means
- * "the page you are on", and a permanently amber contact link would compete
- * with that signal on every page.
+ * ONE number up here, not both: the primary line. The alternate is in the
+ * footer, next to it, where somebody who failed to get through has a
+ * reason to be looking.
  */
-function WhatsAppLink() {
+function WhatsAppLink({ className = "" }: { className?: string }) {
   const [primary] = contactNumbers;
   return (
     <a
       href={whatsappHref(primary.whatsapp)}
       target="_blank"
       rel="noopener noreferrer"
-      className="flex min-h-11 items-center rounded-slab px-3 text-sm font-bold uppercase tracking-wide text-slab-300 transition-colors duration-150 ease-out hover:text-slab-50"
+      className={`${CONTROL} ${SECONDARY} ${className}`}
     >
+      <ChatIcon />
       WhatsApp
     </a>
   );
 }
 
-function CartLink() {
+/**
+ * The cart, with a live count of pieces. The badge is suppressed until
+ * hydration so server and client markup agree, and hidden at 0. Under
+ * 390px the word "Cart" goes and the icon and badge stay; the name is
+ * always in `aria-label`.
+ */
+function CartLink({ active, className = "" }: { active: boolean; className?: string }) {
   const { itemCount, hydrated } = useCart();
+  const count = hydrated ? itemCount : 0;
   return (
     <Link
       href="/cart"
-      className="relative flex min-h-11 items-center gap-2 rounded-slab border-2 border-slab-700 px-3 text-sm font-bold uppercase tracking-wide text-slab-100 transition-colors duration-150 ease-out hover:border-hivis hover:text-hivis"
+      aria-current={active ? "page" : undefined}
+      aria-label={count > 0 ? `Cart, ${count} item${count === 1 ? "" : "s"}` : "Cart"}
+      className={`${CONTROL} ${className} ${
+        active
+          ? "border-hivis bg-slab-800 text-hivis"
+          : "border-slab-100 bg-slab-100 text-slab-900 hover:bg-white"
+      }`}
     >
-      Cart
-      {/* Suppressed until hydrated so server and client markup agree. */}
-      {hydrated && itemCount > 0 ? (
-        <span className="rounded-slab bg-hivis px-1.5 text-xs text-slab-900">
-          {itemCount}
+      <CartIcon />
+      <span className="hidden min-[390px]:inline">Cart</span>
+      {count > 0 ? (
+        <span className="min-w-5 rounded-slab bg-hivis px-1 text-center text-xs leading-5 text-slab-900 tabular-nums">
+          {count}
         </span>
       ) : null}
     </Link>
   );
 }
 
+/**
+ * The nav row. On a phone it is its own line and scrolls sideways — only
+ * this row, never the page — and while there is more off the right edge
+ * that edge fades out, so the cut-off button reads as "more" rather than
+ * as a mistake. The fade is a mask on the row itself, not a painted
+ * overlay, so it adds no colour.
+ */
+function NavRow({ pathname }: { pathname: string }) {
+  const rowRef = useRef<HTMLUListElement>(null);
+  const [more, setMore] = useState(false);
+
+  useEffect(() => {
+    const row = rowRef.current;
+    if (!row) return;
+    const update = () => setMore(row.scrollLeft + row.clientWidth < row.scrollWidth - 4);
+    update();
+    row.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      row.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  return (
+    <nav
+      aria-label="Main"
+      className="-mx-4 w-[calc(100%+2rem)] lg:order-2 lg:mx-0 lg:w-auto"
+    >
+      <ul
+        ref={rowRef}
+        // -mt-1.5/pt-1.5: room inside the scroller for the focus ring's top
+        // edge, which overflow-x would otherwise clip, at no extra height.
+        className={`no-scrollbar -mt-1.5 flex items-center gap-2 overflow-x-auto px-4 pt-1.5 pb-2 md:pb-3 lg:mt-0 lg:overflow-visible lg:px-0 lg:py-0 ${
+          more ? "[mask-image:linear-gradient(to_right,#000_calc(100%-3rem),transparent)]" : ""
+        }`}
+      >
+        {navLinks.map((link, index) => {
+          const active = pathname.startsWith(link.href);
+          const primary = index === 0;
+          return (
+            <li key={link.href} className="shrink-0">
+              <Link
+                href={link.href}
+                aria-current={active ? "page" : undefined}
+                className={`${CONTROL} ${
+                  primary
+                    ? `border-hivis bg-hivis text-slab-900 hover:border-hivis-dark hover:bg-hivis-dark ${
+                        active ? "ring-2 ring-slab-50 ring-offset-2 ring-offset-slab-900" : ""
+                      }`
+                    : active
+                      ? "border-hivis bg-slab-800 text-hivis"
+                      : SECONDARY
+                }`}
+              >
+                {primary ? <CalendarIcon /> : null}
+                {link.label}
+              </Link>
+            </li>
+          );
+        })}
+        {/* On a phone WhatsApp rides at the end of this row; from md up it sits beside the cart. */}
+        <li className="shrink-0 md:hidden">
+          <WhatsAppLink />
+        </li>
+      </ul>
+    </nav>
+  );
+}
+
+/**
+ * LAYOUT, BY WIDTH.
+ *
+ *   PHONE   row 1: wordmark left, cart right, nothing else, in a row
+ *           that cannot wrap. Row 2: the nav row, Book a Wash first. Tagline
+ *           and hours are hidden here; they are in the footer.
+ *   md      the hours line comes back under the wordmark and WhatsApp
+ *           moves up beside the cart.
+ *   lg      one row: wordmark, nav, WhatsApp, cart.
+ *
+ * Not sticky: it scrolls away with the page, so it never covers content.
+ */
 export function SiteHeader() {
   const pathname = usePathname();
 
   return (
     <header className="no-print border-b-2 border-slab-800 bg-slab-900 text-slab-100">
-      <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-2 px-4 pt-2 md:pt-3 lg:flex-nowrap lg:gap-3 lg:py-3">
         {/*
           NO ICON. The wordmark is the mark.
 
@@ -121,45 +255,30 @@ export function SiteHeader() {
           It is the single most specific mark available here and it costs no
           illustration, no SVG and no request.
         */}
-        <Link
-          href="/"
-          className="mr-auto flex flex-col leading-tight"
-          aria-label={`${business.name} — home`}
-        >
-          <span className="text-lg font-extrabold uppercase tracking-tight sm:text-xl">
-            <Wordmark name={business.name} />
-          </span>
-          <span className="text-xs text-slab-400">{hoursSummary}</span>
-        </Link>
+        {/*
+          ROW ONE NEVER WRAPS. Wordmark and cart share a non-wrapping row,
+          so a cart badge can never push the cart onto a line of its own;
+          if the row were ever too narrow, the wordmark would take an
+          ellipsis rather than the cart moving. At lg the row dissolves
+          (`contents`) and its pieces join the one-line desktop header.
+        */}
+        <div className="flex w-full min-w-0 items-center gap-2 lg:contents">
+          <Link
+            href="/"
+            className="mr-auto flex min-h-11 min-w-0 flex-col justify-center leading-tight lg:order-1"
+            aria-label={`${business.name} — home`}
+          >
+            <span className="truncate text-sm font-extrabold uppercase tracking-tight md:text-xl">
+              <Wordmark name={business.name} />
+            </span>
+            <span className="hidden text-xs text-slab-400 md:block">{hoursSummary}</span>
+          </Link>
 
-        <nav
-          aria-label="Main"
-          className="order-3 -mx-4 w-[calc(100%+2rem)] overflow-x-auto border-t border-slab-800 px-4 pt-2 sm:order-none sm:mx-0 sm:w-auto sm:border-0 sm:pt-0"
-        >
-          <ul className="flex items-center gap-1 whitespace-nowrap">
-            {navLinks.map((link) => {
-              const active = pathname.startsWith(link.href);
-              return (
-                <li key={link.href}>
-                  <Link
-                    href={link.href}
-                    aria-current={active ? "page" : undefined}
-                    className={`flex min-h-11 items-center rounded-slab px-3 text-sm font-bold uppercase tracking-wide transition-colors duration-150 ease-out ${
-                      active
-                        ? "text-hivis"
-                        : "text-slab-300 hover:text-slab-50"
-                    }`}
-                  >
-                    {link.label}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
+          <WhatsAppLink className="hidden md:flex lg:order-3" />
+          <CartLink active={pathname.startsWith("/cart")} className="lg:order-4" />
+        </div>
 
-        <WhatsAppLink />
-        <CartLink />
+        <NavRow pathname={pathname} />
       </div>
     </header>
   );

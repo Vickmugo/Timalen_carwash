@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { FulfilmentBadge } from "@/components/Badge";
 import { ButtonLink } from "@/components/Button";
 import { PageHeader } from "@/components/PageHeader";
@@ -10,6 +11,7 @@ import { formatKes } from "@/lib/format";
 
 export default function CartPage() {
   const { lines, hydrated, subtotalKes, evaluation } = useCart();
+  const [confirmingEmpty, setConfirmingEmpty] = useState(false);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
@@ -132,13 +134,43 @@ export default function CartPage() {
             )}
           </div>
 
-          <button
-            type="button"
-            onClick={clearCart}
-            className="mt-4 text-sm font-bold uppercase tracking-wide text-slab-500 underline underline-offset-4 transition-colors duration-150 ease-out hover:text-alert"
-          >
-            Empty cart
-          </button>
+          {/*
+            QUIET, ON ITS OWN ROW, WELL CLEAR OF CHECKOUT, and it asks first —
+            inline, not with the browser's confirm(), which some in-app
+            browsers suppress and which reads like an error box.
+          */}
+          <div className="mt-8" aria-live="polite">
+            {confirmingEmpty ? (
+              <p className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slab-700">
+                <span className="font-semibold">Remove all items?</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearCart();
+                    setConfirmingEmpty(false);
+                  }}
+                  className="min-h-11 font-bold uppercase tracking-wide text-alert underline underline-offset-4"
+                >
+                  Yes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingEmpty(false)}
+                  className="min-h-11 font-bold uppercase tracking-wide text-slab-700 underline underline-offset-4"
+                >
+                  No
+                </button>
+              </p>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmingEmpty(true)}
+                className="min-h-11 text-sm font-bold uppercase tracking-wide text-slab-500 underline underline-offset-4 transition-colors duration-150 ease-out hover:text-alert"
+              >
+                Empty cart
+              </button>
+            )}
+          </div>
         </>
       )}
     </div>

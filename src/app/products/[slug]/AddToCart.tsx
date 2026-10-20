@@ -6,7 +6,7 @@ import { Button, ButtonLink } from "@/components/Button";
 import { quoteRules } from "@/data/config";
 import { variantNoun } from "@/data/products";
 import type { PriceCell, Product, ProductVariant } from "@/types";
-import { addItem } from "@/lib/cart";
+import { addItem, useCart } from "@/lib/cart";
 import { cartLineName } from "@/lib/cart-line";
 import { formatKes } from "@/lib/format";
 
@@ -128,6 +128,7 @@ export function AddToCart({
   // What was last added, by name, so switching height afterwards cannot
   // leave "Added" sitting under a height that was not the one added.
   const [added, setAdded] = useState<string | null>(null);
+  const cartNeedsQuote = useCart().evaluation.requiresQuote;
 
   // Over the threshold this item alone will force the cart into quote mode.
   // Say so here rather than letting the customer discover it at checkout.
@@ -225,16 +226,33 @@ export function AddToCart({
         {choice ? "Add to cart" : `Pick a ${variantNoun(product)} first`}
       </Button>
 
+      {/*
+        STRAIGHT ON TO CHECKOUT from here, beside "View cart", so a customer
+        who has what they came for skips the cart page. If the cart now has
+        to go to a quote, checkout would only turn them away, so the
+        primary button says where they actually go.
+      */}
       {added ? (
-        <p
+        <div
           role="status"
-          className="mt-3 flex flex-wrap items-center gap-2 rounded-slab border-2 border-ok/30 bg-ok-tint px-3 py-2 text-sm font-semibold text-ok"
+          className="mt-3 rounded-slab border-2 border-ok/30 bg-ok-tint px-3 py-3 text-sm font-semibold text-ok"
         >
-          Added {added} to your cart.
-          <Link href="/cart" className="underline underline-offset-4">
-            View cart
-          </Link>
-        </p>
+          <p>Added {added} to your cart.</p>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            {cartNeedsQuote ? (
+              <ButtonLink href="/quote?from=cart" size="md" className="min-h-11">
+                Request a quote
+              </ButtonLink>
+            ) : (
+              <ButtonLink href="/checkout" size="md" className="min-h-11">
+                Checkout
+              </ButtonLink>
+            )}
+            <Link href="/cart" className="flex min-h-11 items-center underline underline-offset-4">
+              View cart
+            </Link>
+          </div>
+        </div>
       ) : null}
     </div>
   );
