@@ -35,13 +35,15 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   const date = request.nextUrl.searchParams.get("date") ?? "";
+  // Read as Nairobi time by the slot helpers, whatever zone this runs in.
+  const now = new Date();
 
   /*
     Only days the form itself offers. This is a cheap bound on how much of
     the diary one caller can enumerate, and it costs nothing: the picker
     cannot ask for a day outside the window anyway.
   */
-  if (!getBookableDates().includes(date)) {
+  if (!getBookableDates(now).includes(date)) {
     return NextResponse.json(
       { error: "bad_request", detail: "That date is not open for booking." },
       { status: 400, headers: { "Cache-Control": "no-store" } },
@@ -69,6 +71,7 @@ export async function GET(request: NextRequest) {
       date,
       holdMinutesFor(vehicle ?? ""),
       await getBookedIntervals(date),
+      now,
     );
     return NextResponse.json(
       { date, slots },

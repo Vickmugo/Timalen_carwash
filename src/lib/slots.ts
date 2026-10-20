@@ -11,13 +11,16 @@
  *    by matching start times, so a 90-minute wax booking correctly blocks
  *    the 30-minute slots underneath it.
  *  - Slots in the past, or inside the minimum lead time, are not offered.
+ *  - "Today", "now" and every weekday are Nairobi's, whatever zone the
+ *    machine is in — see src/lib/nairobi-time.ts.
  */
 
 import { operatingHours } from "@/data/business";
 import { bookingConfig } from "@/data/config";
 import { getFlatVehicle } from "@/data/services";
 import type { Booking, WeekdayIndex } from "@/types";
-import { fromDateKey, minutesToTime, timeToMinutes, toDateKey } from "./format";
+import { minutesToTime, timeToMinutes } from "./format";
+import { addDaysToDateKey, nairobiNow, weekdayOfDateKey } from "./nairobi-time";
 
 export interface Slot {
   /** "HH:mm" */
@@ -46,7 +49,7 @@ export function holdMinutesFor(vehicleId: string): number {
 }
 
 export function getDayHours(dateKey: string) {
-  const weekday = fromDateKey(dateKey).getDay() as WeekdayIndex;
+  const weekday = weekdayOfDateKey(dateKey) as WeekdayIndex;
   return operatingHours[weekday];
 }
 
@@ -54,17 +57,32 @@ export function isClosed(dateKey: string): boolean {
   return getDayHours(dateKey).closed;
 }
 
+/** Today's date at the yard, "YYYY-MM-DD". */
+export function todayKey(now: Date = new Date()): string {
+  return nairobiNow(now).dateKey;
+}
+
 /**
- * Build the list of selectable dates, starting today, spanning
- * `bookingConfig.bookingWindowDays`. Closed days are included so the UI can
- * show them greyed out rather than silently skipping them.
+ * Build the list of selectable dates, spanning
+ * `bookingConfig.bookingWindowDays` from today. Closed days are included so
+ * the UI can show them greyed out rather than silently skipping them.
+ *
+ * Today is left off once the yard has closed for the day: nothing on it
+ * can be booked any more, and offering it first would preselect a day of
+ * struck-out times. The window still ends on the same day, today plus
+ * `bookingWindowDays - 1`, so this never reaches further ahead.
  */
-export function getBookableDates(from: Date = new Date()): string[] {
+export function getBookableDates(now: Date = new Date()): string[] {
+  const today = nairobiNow(now);
+  const closedForToday =
+    today.minutes >= timeToMinutes(getDayHours(today.dateKey).close);
   const dates: string[] = [];
-  for (let offset = 0; offset < bookingConfig.bookingWindowDays; offset += 1) {
-    const date = new Date(from);
-    date.setDate(date.getDate() + offset);
-    dates.push(toDateKey(date));
+  for (
+    let offset = closedForToday ? 1 : 0;
+    offset < bookingConfig.bookingWindowDays;
+    offset += 1
+  ) {
+    dates.push(addDaysToDateKey(today.dateKey, offset));
   }
   return dates;
 }
@@ -98,10 +116,19 @@ export function generateSlots(
       end: timeToMinutes(booking.endTime),
     }));
 
-  const isToday = dateKey === toDateKey(now);
-  const earliestStart = isToday
-    ? now.getHours() * 60 + now.getMinutes() + bookingConfig.minimumLeadTimeMinutes
-    : -Infinity;
+  /*
+    A start is offered only at or after now plus the lead time, in Nairobi
+    minutes. A day already gone offers nothing; a later day is unaffected.
+    Before opening the same rule applies, so at 07:00 the 08:00 slot is
+    exactly one lead time away and is offered.
+  */
+  const today = nairobiNow(now);
+  const earliestStart =
+    dateKey < today.dateKey
+      ? Infinity
+      : dateKey === today.dateKey
+        ? today.minutes + bookingConfig.minimumLeadTimeMinutes
+        : -Infinity;
 
   const slots: Slot[] = [];
   for (

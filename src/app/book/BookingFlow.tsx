@@ -87,7 +87,6 @@ import {
   formatKes,
   formatLongDate,
   formatShortDate,
-  fromDateKey,
 } from "@/lib/format";
 import {
   flatVehicleLines,
@@ -97,6 +96,7 @@ import {
 } from "@/lib/booking";
 import type { Slot } from "@/lib/slots";
 import { getBookableDates, getDayHours, holdMinutesFor } from "@/lib/slots";
+import { weekdayOfDateKey } from "@/lib/nairobi-time";
 import { compactErrors, phoneError, requiredText } from "@/lib/validate";
 
 const STEPS = ["Wash", "Time", "Details", "Payment"];
@@ -776,7 +776,7 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
                   }`}
                 >
                   <span className="text-xs font-bold uppercase tracking-wide">
-                    {WEEKDAY_SHORT[fromDateKey(date).getDay()]}
+                    {WEEKDAY_SHORT[weekdayOfDateKey(date)]}
                   </span>
                   <span className="text-sm font-bold">
                     {formatShortDate(date)}
