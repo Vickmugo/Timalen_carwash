@@ -8,6 +8,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { staffNames } from "../src/data/staff-names";
 import { maskMpesaCode, maskPhone } from "../src/lib/mask";
 import { receiptPageResult } from "../src/lib/receipt-view";
 import type { PaymentSummary, ReceiptRecord } from "../src/types";
@@ -18,7 +19,6 @@ const RECEIPT_ID = "9a0b1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d";
 const CLAIMED_AT = "2026-10-19T09:12:56.057Z";
 const REJECT_REASON = "TEST code not on the till statement";
 const VOID_REASON = "TEST typed the wrong amount";
-const STAFF_NAMES = ["Pamela", "Julius", "Aaron"];
 
 function payment(status: PaymentSummary["status"], receipt: PaymentSummary["receipt"]): PaymentSummary {
   return {
@@ -48,7 +48,7 @@ function receiptRow(status: "issued" | "void"): ReceiptRecord {
     method: "mpesa",
     mpesaCode: CODE,
     voidedAt: status === "void" ? "2026-10-19T11:00:00.000Z" : null,
-    voidedBy: status === "void" ? "Julius" : null,
+    voidedBy: status === "void" ? "Inyingi" : null,
     voidReason: status === "void" ? VOID_REASON : null,
     snapshot: {
       kind: "booking",
@@ -65,7 +65,7 @@ function receiptRow(status: "issued" | "void"): ReceiptRecord {
       amount_differs: false,
       claimed_at: CLAIMED_AT,
       confirmed_at: "2026-10-19T10:00:00.000Z",
-      confirmed_by: "Aaron",
+      confirmed_by: "Haron",
       vehicle: "TEST KDA 123X red Probox",
       priced_as: "Saloon",
       date: "2026-10-30",
@@ -92,7 +92,7 @@ const FORBIDDEN = [
   "+254712345678",
   "0712345678",
   "712345678",
-  ...STAFF_NAMES,
+  ...staffNames,
 ];
 
 function assertClean(label: string, value: unknown) {
