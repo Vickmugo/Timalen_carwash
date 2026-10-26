@@ -3,7 +3,8 @@
  *
  * Node strips TypeScript types on its own (v22.18+); what it cannot do is
  * resolve the app's `@/…` alias or an import written without `.ts`. This
- * hook does exactly those two things and nothing else. Run with
+ * hook does those two things, plus stubbing `server-only`, and nothing
+ * else. Run with
  *
  *     npm test
  */

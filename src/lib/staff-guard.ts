@@ -20,6 +20,7 @@
 import "server-only";
 import { cookies } from "next/headers";
 import type { NextRequest } from "next/server";
+import { staffNames } from "@/data/staff-names";
 import {
   SESSION_COOKIE,
   staffAuthConfig,
@@ -35,7 +36,7 @@ function verify(value: string | undefined): StaffSession | null {
     );
     return null;
   }
-  return verifySessionValue(value, config.secret);
+  return verifySessionValue(value, config.secret, staffNames);
 }
 
 /** For route handlers. */

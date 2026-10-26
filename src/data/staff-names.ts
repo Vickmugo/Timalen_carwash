@@ -17,21 +17,23 @@
  * read by /api/login, after the password has already been accepted, so it
  * cannot be probed by someone who does not know the password.
  *
+ * The list is also checked on every request carrying a session, so a name
+ * removed or renamed here signs that person out at their next request.
+ *
  * Still self-reported: one person can type another's name. See the header
  * of src/lib/session.ts.
  * =====================================================================
  */
 
 import "server-only";
+import { matchStaffName } from "@/lib/session";
 
-export const staffNames: string[] = ["Pamela", "Julius", "Aaron"];
+export const staffNames: readonly string[] = ["Pamela", "Inyingi", "Haron"];
 
 /**
  * The canonical spelling for a cleaned name, or null if the list is in use
  * and the name is not on it. With an empty list the name is returned as is.
  */
 export function canonicalStaffName(name: string): string | null {
-  if (staffNames.length === 0) return name;
-  const wanted = name.toLocaleLowerCase("en");
-  return staffNames.find((entry) => entry.toLocaleLowerCase("en") === wanted) ?? null;
+  return matchStaffName(name, staffNames);
 }

@@ -114,6 +114,18 @@ export function normaliseStaffName(raw: unknown): string | null {
   return cleaned;
 }
 
+/**
+ * The spelling on `staffNames` for a cleaned name (case is ignored), or
+ * null if the list is in use and the name is not on it. With an empty list
+ * the name is returned as is. Pure, so it can be tested; the list itself
+ * lives server-only in src/data/staff-names.ts.
+ */
+export function matchStaffName(name: string, staffNames: readonly string[]): string | null {
+  if (staffNames.length === 0) return name;
+  const wanted = name.toLocaleLowerCase("en");
+  return staffNames.find((entry) => entry.toLocaleLowerCase("en") === wanted) ?? null;
+}
+
 /* ------------------------------------------------------------------ */
 /* Signing                                                             */
 /* ------------------------------------------------------------------ */
@@ -145,7 +157,13 @@ export function createSessionValue(
 
 /**
  * The session, for a cookie this server signed with this secret that has
- * not expired and carries a valid name. Null for everything else.
+ * not expired and carries a name still on `staffNames`. Null for
+ * everything else.
+ *
+ * The list is checked here, not only at sign-in, so a name taken off the
+ * list (or renamed) stops working at once rather than living on in a
+ * cookie for up to twelve hours. The proxy then clears the cookie and
+ * sends that person to /login to sign in again.
  *
  * Never throws: a malformed cookie has to read as "not signed in", not as
  * a 500 on the staff view.
@@ -153,6 +171,7 @@ export function createSessionValue(
 export function verifySessionValue(
   value: string | undefined,
   secret: string,
+  staffNames: readonly string[],
   now: number = Date.now(),
 ): StaffSession | null {
   if (!value) return null;
@@ -172,7 +191,9 @@ export function verifySessionValue(
 
   // Belt and braces: re-check the name even though it was signed, so a
   // rule tightened later also applies to cookies minted before it.
-  const name = normaliseStaffName(Buffer.from(nameRaw, "base64url").toString("utf8"));
+  const cleaned = normaliseStaffName(Buffer.from(nameRaw, "base64url").toString("utf8"));
+  if (!cleaned) return null;
+  const name = matchStaffName(cleaned, staffNames);
   if (!name) return null;
 
   return { name, expiresAt };

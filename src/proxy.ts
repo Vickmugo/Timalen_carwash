@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { staffNames } from "@/data/staff-names";
 import { LIMITS, rateLimit } from "@/lib/rate-limit";
 import { SESSION_COOKIE, staffAuthConfig, verifySessionValue } from "@/lib/session";
 
@@ -91,7 +92,8 @@ const MISCONFIGURED_MESSAGE = [
 async function limitReceiptLookup(request: NextRequest) {
   const config = staffAuthConfig();
   const staff =
-    config.ok && verifySessionValue(request.cookies.get(SESSION_COOKIE)?.value, config.secret);
+    config.ok &&
+    verifySessionValue(request.cookies.get(SESSION_COOKIE)?.value, config.secret, staffNames);
   if (staff) return NextResponse.next();
 
   const limited = await rateLimit(request, LIMITS.refLookup);
@@ -135,7 +137,7 @@ export async function proxy(request: NextRequest) {
 
   const session = request.cookies.get(SESSION_COOKIE)?.value;
 
-  if (!verifySessionValue(session, config.secret)) {
+  if (!verifySessionValue(session, config.secret, staffNames)) {
     /*
       Where they were trying to go, carried across so the login lands them
       back on it rather than dumping everyone on /admin. Built from
@@ -156,7 +158,8 @@ export async function proxy(request: NextRequest) {
       Clear whatever was in the cookie jar on the way past.
 
       It failed verification, so it is one of: expired, signed with a
-      password that has since changed, or junk. None of those get better on
+      password that has since changed, carrying a name no longer on the
+      staff list, or junk. None of those get better on
       the next request, and leaving it in place means the browser keeps
       sending a dead cookie to every /admin URL until it ages out on its
       own. Deleting it also means a stale session cannot be mistaken for a
