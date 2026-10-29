@@ -86,12 +86,16 @@ function integrity(receipts: ReceiptRecord[], series: "W" | "C") {
  *
  * The staff names are labelled self-reported in the header itself, so the
  * caveat travels with the file.
+ *
+ * `source` is "online" or "walk-in" for a wash booking, blank otherwise.
+ * `plate` is the booking's vehicle field: the plate staff typed for a
+ * walk-in, the customer's own "make, model and plate" for an online one.
  */
 function toCsv(rows: ReceiptRecord[]): string {
   const header = [
     "number", "issued_at", "series", "ref", "customer", "phone", "method",
     "amount_kes", "mpesa_code", "issued_by (self-reported)", "status", "void_reason",
-    "voided_by (self-reported)",
+    "voided_by (self-reported)", "source", "plate",
   ];
   const quote = csvCell;
   const lines = rows.map((receipt) =>
@@ -109,6 +113,12 @@ function toCsv(rows: ReceiptRecord[]): string {
       receipt.status,
       receipt.voidReason,
       receipt.voidedBy,
+      receipt.snapshot.kind === "booking"
+        ? receipt.source === "staff"
+          ? "walk-in"
+          : "online"
+        : "",
+      receipt.snapshot.kind === "booking" ? (receipt.snapshot.vehicle ?? "") : "",
     ]
       .map(quote)
       .join(","),

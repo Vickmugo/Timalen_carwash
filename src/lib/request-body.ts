@@ -27,7 +27,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 export const MAX_BODY_BYTES = 32 * 1024;
-export const MAX_TEXT = 500;
+export { MAX_TEXT } from "@/lib/clean-text";
 
 export type JsonBodyResult<T> = { ok: true; body: T } | { ok: false; response: NextResponse };
 
@@ -111,19 +111,8 @@ export async function readFormBody(
   }
 }
 
-/**
- * Trimmed, capped free text. Control characters other than newline and
- * tab are dropped; anything that is not a string becomes "".
- */
-export function cleanText(value: unknown, max: number = MAX_TEXT): string {
-  if (typeof value !== "string") return "";
-  return value
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
-    .trim()
-    .slice(0, max);
-}
-
-/** `cleanText`, minus any leading formula characters. */
-export function cleanCustomerName(value: unknown): string {
-  return cleanText(value).replace(/^[=+\-@\s]+/, "").trim();
-}
+// The free-text cleaners live in src/lib/clean-text.ts, which has no
+// imports, so pure modules (and their tests) can use them without
+// next/server. Re-exported here so every route keeps importing them from
+// one place.
+export { cleanCustomerName, cleanText } from "@/lib/clean-text";

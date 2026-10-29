@@ -1054,7 +1054,7 @@ export function BookingFlow({ priceBook }: { priceBook: PriceBook }) {
  *                no radio, and it says to call — with the number — rather
  *                than hiding a vehicle the yard does wash
  */
-function FlatSizeOption({
+export function FlatSizeOption({
   id,
   name,
   priceKes,
@@ -1127,7 +1127,7 @@ function slotKey(vehicleId: BookingVehicleId | null, date: string): string {
 }
 
 /** The running total under the picker, for a column or a flat vehicle. */
-function SelectionTotal({ label, totalKes }: { label: string; totalKes: number }) {
+export function SelectionTotal({ label, totalKes }: { label: string; totalKes: number }) {
   return (
     <div className="mt-6 rounded-slab border-2 border-slab-900 bg-white">
       <div className="flex items-center justify-between gap-4 px-4 py-3">
@@ -1160,7 +1160,7 @@ function SelectionTotal({ label, totalKes }: { label: string; totalKes: number }
  * tap target on a phone and the browser's own checkbox semantics carry the
  * state to a screen reader without an aria-pressed of our own.
  */
-function ServiceOption({
+export function ServiceOption({
   id,
   name,
   priceKes,

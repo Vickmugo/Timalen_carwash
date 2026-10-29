@@ -447,7 +447,12 @@ export interface ReceiptRecord {
   voidedBy: string | null;
   voidReason: string | null;
   snapshot: ReceiptSnapshot;
+  /** Wash bookings only, and only on the ledger's list read: online or walk-in. */
+  source?: BookingSource;
 }
+
+/** Where a booking came from: the /book form, or the staff counter. */
+export type BookingSource = "online" | "staff";
 
 /**
  * The work, separately from the money. A car can be washed and not paid
@@ -551,6 +556,11 @@ export interface Booking {
    * payments were recorded. Those still have `paymentStatus`, set by hand.
    */
   payment?: PaymentSummary;
+  /**
+   * 'staff' for a walk-in registered from /admin (no slot was booked; the
+   * plate, if given, is in `vehicle`). Absent reads as 'online'.
+   */
+  source?: BookingSource;
   createdAt: string;
   /**
    * Status changes made in the staff view, MOST RECENT FIRST.

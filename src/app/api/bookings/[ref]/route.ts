@@ -153,6 +153,15 @@ export async function PATCH(
         409,
       );
     }
+    if (result.reason === "walk_in") {
+      return json(
+        {
+          error: "walk_in",
+          detail: "This is a walk-in. Record its payment with its own Cash or M-Pesa buttons.",
+        },
+        409,
+      );
+    }
 
     console.error(`[api/bookings/[ref]] PATCH failed: ${result.detail}`);
     return json({ error: "write_failed" }, 503);

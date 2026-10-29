@@ -25,6 +25,7 @@
 import { BUSINESS_ID, getSupabaseServiceRoleClient } from "@/lib/supabase";
 import { initialStatus, type PaymentChoice } from "@/lib/payments";
 import type {
+  BookingSource,
   PaymentDestination,
   PaymentMethod,
   PaymentRecordStatus,
@@ -326,6 +327,7 @@ interface ReceiptRow {
   voided_by: string | null;
   void_reason: string | null;
   snapshot: ReceiptSnapshot;
+  payments?: { bookings: { source: BookingSource } | null } | null;
 }
 
 function toReceipt(row: ReceiptRow): ReceiptRecord {
@@ -344,6 +346,7 @@ function toReceipt(row: ReceiptRow): ReceiptRecord {
     voidedBy: row.voided_by,
     voidReason: row.void_reason,
     snapshot: row.snapshot,
+    ...(row.payments?.bookings?.source ? { source: row.payments.bookings.source } : {}),
   };
 }
 
@@ -356,7 +359,9 @@ export async function listReceipts(): Promise<ReceiptRecord[]> {
   const db = getSupabaseServiceRoleClient();
   const { data, error } = await db
     .from("receipts")
-    .select(RECEIPT_SELECT)
+    // Plus where a wash booking came from, for the export's Source column.
+    // Read through the payment; the receipt row and its snapshot are untouched.
+    .select(`${RECEIPT_SELECT}, payments(bookings(source))`)
     .eq("business_id", BUSINESS_ID)
     .order("issued_at", { ascending: false });
   if (error) throw new Error(`listReceipts: ${error.message}`);
