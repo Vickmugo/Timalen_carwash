@@ -66,6 +66,8 @@ import { PaymentCell } from "./PaymentCell";
 import { CashDue, PaymentsToVerify } from "./PaymentQueues";
 import { PriceEditor } from "./PriceEditor";
 import { ReceiptsLedger } from "./ReceiptsLedger";
+import { RegisterWalkin, WalkinPayment } from "./Walkins";
+import { WALKIN_DEFAULT_NAME } from "@/lib/walkin-text";
 import { productCategories } from "@/data/products";
 import type {
   Booking,
@@ -1092,6 +1094,15 @@ export default function AdminPage() {
               ) : null
             }
           >
+            {/*
+              A CAR AT THE COUNTER, NO SLOT. First in the section, full
+              width on a phone: this is the job done most often at the yard.
+              See src/app/admin/Walkins.tsx.
+            */}
+            <div className="border-b-2 border-slab-200 p-3 md:p-4">
+              <RegisterWalkin onChanged={refreshAfterPayment} />
+            </div>
+
             {bookingsError || bookingWriteError ? (
               <p className="mb-4 rounded-slab border-2 border-fail bg-fail-tint px-3 py-2 text-sm text-slab-800">
                 {bookingWriteError ?? bookingsError}
@@ -1135,6 +1146,7 @@ export default function AdminPage() {
                         today={today}
                         onPaymentChange={changeBookingPayment}
                         onJobChange={changeBookingJob}
+                        onWalkinPayment={refreshAfterPayment}
                       />
                     ))}
                   </tbody>
@@ -1387,6 +1399,7 @@ function BookingRow({
   today,
   onPaymentChange,
   onJobChange,
+  onWalkinPayment,
 }: {
   booking: Booking;
   today: string;
@@ -1398,9 +1411,12 @@ function BookingRow({
   */
   onPaymentChange: (ref: string, status: PaymentStatus) => void;
   onJobChange: (ref: string, status: JobStatus) => void;
+  /** A walk-in's payment was started; reload what shows it. */
+  onWalkinPayment: () => void;
 }) {
   const isToday = booking.date === today;
   const job = booking.jobStatus ?? "booked";
+  const walkIn = booking.source === "staff";
   return (
     <tr>
       <td className={`${td} font-semibold md:whitespace-nowrap`} data-head="">
@@ -1409,6 +1425,11 @@ function BookingRow({
         {isToday ? (
           <span className="ml-2 rounded-slab bg-hivis px-1.5 py-0.5 text-xs font-bold uppercase tracking-wide text-slab-900">
             Today
+          </span>
+        ) : null}
+        {walkIn ? (
+          <span className="ml-2 rounded-slab border border-slab-900 px-1.5 py-0.5 text-xs font-bold uppercase tracking-wide text-slab-900">
+            Walk-in
           </span>
         ) : null}
       </td>
@@ -1441,11 +1462,19 @@ function BookingRow({
       </td>
       <td className={td} data-label="Customer">
         {booking.customerName}
+        {/* A walk-in left as "Customer" is known by its plate. */}
+        {walkIn && booking.customerName === WALKIN_DEFAULT_NAME && booking.vehicle ? (
+          <span className="mt-0.5 block font-mono text-xs font-bold">{booking.vehicle}</span>
+        ) : null}
       </td>
       <td className={`${td} md:whitespace-nowrap`} data-label="Phone">
-        <a href={`tel:${booking.phone.replace(/\s/g, "")}`} className="underline underline-offset-4 hover:text-slab-600">
-          {booking.phone}
-        </a>
+        {booking.phone ? (
+          <a href={`tel:${booking.phone.replace(/\s/g, "")}`} className="underline underline-offset-4 hover:text-slab-600">
+            {booking.phone}
+          </a>
+        ) : (
+          <span className="text-slab-500">No phone</span>
+        )}
       </td>
       <td className={td} data-label="Vehicle">
         {booking.vehicle}
@@ -1471,7 +1500,14 @@ function BookingRow({
         </div>
       </td>
       <td className={td} data-label="Payment">
-        {booking.payment ? (
+        {walkIn ? (
+          /*
+            A WALK-IN: never the legacy hand-set select (the server refuses
+            it too). Its payment is started here and settled in the queues
+            above, which issue the receipt.
+          */
+          <WalkinPayment booking={booking} onChanged={onWalkinPayment} />
+        ) : booking.payment ? (
           <PaymentCell payment={booking.payment} kind="booking" reference={booking.ref} />
         ) : (
           /*

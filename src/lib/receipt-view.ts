@@ -60,7 +60,7 @@ export interface ReceiptView {
   collection: string | null;
   /** Full name for staff, first name for the public. */
   customerName: string;
-  /** Full for staff, masked for the public. */
+  /** Full for staff, masked for the public; "" when there is none (a walk-in). */
   phone: string;
   amountKes: number;
   /** Cash counted that did not match the expected total. */
@@ -132,8 +132,10 @@ export function buildReceiptView(receipt: ReceiptRecord, audience: ReceiptAudien
     endTime: snap.kind === "booking" ? (snap.end_time ?? null) : null,
     vehicle: staff && snap.kind === "booking" ? (snap.vehicle ?? null) : null,
     collection: snap.kind === "order" ? (snap.collection ?? null) : null,
-    customerName: staff ? snap.customer_name : firstNameOf(snap.customer_name),
-    phone: staff ? snap.phone : maskPhone(snap.phone),
+    customerName: staff ? (snap.customer_name ?? "") : firstNameOf(snap.customer_name ?? ""),
+    // Blank stays blank rather than becoming a masked "••• •••" that
+    // suggests a number was recorded.
+    phone: !snap.phone?.trim() ? "" : staff ? snap.phone : maskPhone(snap.phone),
     amountKes: receipt.amountKes,
     amountDiffers: snap.amount_differs
       ? { expectedKes: snap.expected_kes, receivedKes: snap.received_kes }

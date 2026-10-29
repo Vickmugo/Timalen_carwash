@@ -49,6 +49,7 @@
 import { BUSINESS_ID, getSupabaseServiceRoleClient } from "@/lib/supabase";
 import { makeRef } from "@/lib/format";
 import { canonicalKenyanPhone } from "@/lib/validate";
+import { countsTowardPhoneCap } from "@/lib/walkin";
 import {
   PAYMENT_EMBED,
   insertPayment,
@@ -59,6 +60,7 @@ import type { PaymentChoice } from "@/lib/payments";
 import type {
   Booking,
   BookingLine,
+  BookingSource,
   BookingVehicleId,
   JobStatus,
   PaymentStatus,
@@ -82,7 +84,7 @@ interface StatusChangeRow {
   changed_at: string;
 }
 
-interface BookingRow {
+export interface BookingRow {
   id: string;
   ref: string;
   vehicle_type_id: string | null;
@@ -100,6 +102,7 @@ interface BookingRow {
   notes: string;
   payment_status: PaymentStatus;
   job_status: JobStatus;
+  source: BookingSource;
   created_at: string;
   booking_lines?: BookingLineRow[] | null;
   status_changes?: StatusChangeRow[] | null;
@@ -115,10 +118,10 @@ interface BookingRow {
  * read out of the schema rather than configured here. Three round trips
  * collapse into one, and a booking can never arrive without its lines.
  */
-const BOOKING_SELECT =
+export const BOOKING_SELECT =
   "id, ref, vehicle_type_id, vehicle_type_name, service_id, service_name, " +
   "price_kes, duration_minutes, booking_date, start_time, end_time, " +
-  "customer_name, phone, vehicle, notes, payment_status, job_status, created_at, " +
+  "customer_name, phone, vehicle, notes, payment_status, job_status, source, created_at, " +
   "booking_lines(service_id, name, price_kes, position), " +
   "status_changes(to_status, changed_by, changed_at), " +
   PAYMENT_EMBED;
@@ -141,7 +144,7 @@ const BOOKING_SELECT =
  * there is one place to delete when `supabase gen types` is wired up and
  * the inference starts working properly.
  */
-function asRow(data: unknown): BookingRow {
+export function asRow(data: unknown): BookingRow {
   return data as BookingRow;
 }
 
@@ -234,6 +237,7 @@ export function toBooking(row: BookingRow): Booking {
     ...(row.payments && row.payments.length > 0
       ? { payment: latestPayment(row.payments) }
       : {}),
+    ...(row.source === "staff" ? { source: "staff" as const } : {}),
     createdAt: toIso(row.created_at),
     // Absent rather than empty, matching how the field reads elsewhere:
     // "nobody has touched this" is the ordinary case, not a missing value.
@@ -568,6 +572,7 @@ export type UpdatePaymentResult =
   | { ok: true; booking: Booking }
   | { ok: false; reason: "not_found" }
   | { ok: false; reason: "has_payment" }
+  | { ok: false; reason: "walk_in" }
   | { ok: false; reason: "db_error"; detail: string };
 
 /**
@@ -607,7 +612,7 @@ export async function updateBookingPayment(
   */
   const existing = await db
     .from("bookings")
-    .select("id, payments(id)")
+    .select("id, source, payments(id)")
     .eq("business_id", BUSINESS_ID)
     .eq("ref", ref)
     .maybeSingle();
@@ -615,6 +620,10 @@ export async function updateBookingPayment(
     return { ok: false, reason: "db_error", detail: existing.error.message };
   }
   if (!existing.data) return { ok: false, reason: "not_found" };
+  // A walk-in is never a legacy booking, even before its payment exists:
+  // its money is recorded through /api/admin/walkins/[ref]/payment and the
+  // queues, so it gets a receipt. Hand-setting 'paid' here would not.
+  if (existing.data.source === "staff") return { ok: false, reason: "walk_in" };
   if (((existing.data.payments as unknown[] | null) ?? []).length > 0) {
     return { ok: false, reason: "has_payment" };
   }
@@ -654,7 +663,9 @@ export async function updateBookingPayment(
  *
  * "Upcoming" is any booking from `fromDate` on that is still booked or in
  * progress; cancelled, done and no-show ones do not count. Cash and M-Pesa
- * alike.
+ * alike. Walk-ins registered by staff never count: the cap stops one
+ * number filling the online diary, and a car already at the counter is
+ * not that (see `countsTowardPhoneCap` in src/lib/walkin.ts).
  *
  * Phones are stored exactly as typed, so the comparison is done here on
  * the canonical form (`canonicalKenyanPhone`) rather than with a SQL
@@ -675,14 +686,16 @@ export async function countUpcomingBookingsForPhone(
   const db = getSupabaseServiceRoleClient();
   const { data, error } = await db
     .from("bookings")
-    .select("phone")
+    .select("phone, source")
     .eq("business_id", BUSINESS_ID)
     .gte("booking_date", fromDate)
     .in("job_status", ["booked", "in_progress"]);
 
   if (error) throw new Error(`countUpcomingBookingsForPhone: ${error.message}`);
   return (data ?? []).filter(
-    (row) => canonicalKenyanPhone(String(row.phone)) === wanted,
+    (row) =>
+      countsTowardPhoneCap({ source: row.source as string }) &&
+      canonicalKenyanPhone(String(row.phone)) === wanted,
   ).length;
 }
 

@@ -324,7 +324,8 @@ export function OfficialReceipt({
           <Line label="Collection" value={receipt.collection} />
         ) : null}
         <Line label="Customer" value={receipt.customerName} />
-        <Line label="Phone" value={receipt.phone} />
+        {/* A walk-in may have no phone; the line is left off, not printed blank. */}
+        {receipt.phone ? <Line label="Phone" value={receipt.phone} /> : null}
       </dl>
 
       <div className="keep-together mt-4 border-t-2 border-slab-900 pt-3">

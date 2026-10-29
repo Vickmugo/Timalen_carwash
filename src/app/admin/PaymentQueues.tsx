@@ -58,14 +58,19 @@ function CustomerCell({ payment, prominent = false }: { payment: QueuedPayment; 
   return (
     <td className={td} data-label="Customer">
       <span className="font-semibold">{payment.customerName}</span>
-      <a
-        href={`tel:${payment.phone.replace(/\s/g, "")}`}
-        className={`mt-0.5 block underline underline-offset-4 hover:text-slab-600 ${
-          prominent ? "font-mono text-base font-bold text-slab-900" : "text-xs"
-        }`}
-      >
-        {payment.phone}
-      </a>
+      {/* A walk-in may have no phone. */}
+      {payment.phone ? (
+        <a
+          href={`tel:${payment.phone.replace(/\s/g, "")}`}
+          className={`mt-0.5 block underline underline-offset-4 hover:text-slab-600 ${
+            prominent ? "font-mono text-base font-bold text-slab-900" : "text-xs"
+          }`}
+        >
+          {payment.phone}
+        </a>
+      ) : (
+        <span className="mt-0.5 block text-xs text-slab-500">No phone</span>
+      )}
     </td>
   );
 }
