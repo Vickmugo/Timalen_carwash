@@ -20,6 +20,11 @@
  * actions, reused unchanged below, each a second tap that issues the
  * receipt. "Done" is never blocked on payment; the card says "Awaiting
  * payment" or "Paid" instead.
+ *
+ * TWO PLACES, ONE FORM. `RegisterWalkin` opens it on /admin; the staff
+ * switch on /book (src/app/book/StaffBook.tsx) shows `WalkinForm` itself,
+ * always open, with no Close and with a sign-in link for a 401. Neither
+ * prop is passed on /admin, which is unchanged.
  * =====================================================================
  */
 
@@ -58,6 +63,25 @@ function describeFailure(status: number, data: Record<string, unknown>): string 
   if (typeof data.detail === "string") return data.detail;
   if (status === 0) return "No connection. Nothing was saved — try again.";
   return "That did not save. Nothing changed — try again.";
+}
+
+/**
+ * A 401 on /book. The link opens a new tab so this form, and everything
+ * typed into it, stays put; sign in there, come back, press Register again.
+ */
+function SignInAgain({ href }: { href: string }) {
+  return (
+    <p
+      role="alert"
+      className="rounded-slab border-2 border-alert bg-alert-tint px-3 py-2 text-sm font-semibold text-alert"
+    >
+      Your sign-in has expired.{" "}
+      <a href={href} target="_blank" rel="noopener" className="underline underline-offset-4">
+        Sign in again
+      </a>
+      . It opens a new tab, so nothing typed here is lost.
+    </p>
+  );
 }
 
 function Alert({ text }: { text: string }) {
@@ -142,16 +166,22 @@ export function RegisterWalkin({ onChanged }: { onChanged: () => void }) {
 
 type TimeMode = "now" | "earlier";
 
-function WalkinForm({
+export function WalkinForm({
   onClose,
   onAnother,
   onChanged,
+  signInHref,
 }: {
-  onClose: () => void;
+  /** Absent on /book, where the form is always open: no Close buttons. */
+  onClose?: () => void;
   onAnother: () => void;
   onChanged: () => void;
+  /** Present on /book: a 401 links here instead of saying "Reload". */
+  signInHref?: string;
 }) {
   const [requestId] = useState(newRequestId);
+  /** A 401 on /book; see `SignInAgain`. */
+  const [expired, setExpired] = useState(false);
 
   const [prices, setPrices] = useState<{
     book: PriceBook | null;
@@ -168,7 +198,12 @@ function WalkinForm({
       try {
         const response = await fetch("/api/prices", { cache: "no-store" });
         if (response.status === 401) {
-          outcome = { book: null, unavailable: [], error: "Your session has expired. Reload to sign in again." };
+          if (signInHref && !cancelled) setExpired(true);
+          outcome = {
+            book: null,
+            unavailable: [],
+            error: signInHref ? null : "Your session has expired. Reload to sign in again.",
+          };
         } else if (!response.ok) {
           outcome = { book: null, unavailable: [], error: "Prices could not be loaded. Close this and try again." };
         } else {
@@ -183,7 +218,7 @@ function WalkinForm({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [signInHref]);
   const [vehicleId, setVehicleId] = useState<BookingVehicleId | null>(null);
   /*
     The section this vehicle is priced from could not be read: say so,
@@ -258,6 +293,7 @@ function WalkinForm({
 
   async function submit(confirmOutsideHours: boolean) {
     setError(null);
+    setExpired(false);
     if (!vehicleId) return setError("Pick a vehicle type.");
     if (lines.length === 0) {
       return setError(flatVehicle ? "Pick the size." : "Pick at least one service with a price.");
@@ -289,6 +325,7 @@ function WalkinForm({
       return;
     }
     setAskOutsideHours(false);
+    if (result.status === 401 && signInHref) return setExpired(true);
     if (!result.ok) return setError(describeFailure(result.status, result.data));
     setRegistered(result.data.booking as Booking);
     onChanged();
@@ -318,9 +355,11 @@ function WalkinForm({
         <h3 id="walkin-title" className="text-lg">
           Register a wash
         </h3>
-        <Button type="button" variant="quiet" className="min-h-11" onClick={onClose}>
-          Close
-        </Button>
+        {onClose ? (
+          <Button type="button" variant="quiet" className="min-h-11" onClick={onClose}>
+            Close
+          </Button>
+        ) : null}
       </div>
 
       {prices.error ? <Alert text={prices.error} /> : null}
@@ -473,6 +512,7 @@ function WalkinForm({
       </fieldset>
 
       {error ? <Alert text={error} /> : null}
+      {expired && signInHref ? <SignInAgain href={signInHref} /> : null}
 
       {askOutsideHours ? (
         <div
@@ -549,7 +589,7 @@ function WalkinEntryCard({
   initial: Booking;
   onChanged: () => void;
   onAnother: () => void;
-  onClose: () => void;
+  onClose?: () => void;
 }) {
   const [booking, setBooking] = useState(initial);
 
@@ -597,14 +637,20 @@ function WalkinEntryCard({
         <PaymentsToVerify list={single} onChanged={onChanged} />
       ) : null}
 
-      <div className="grid grid-cols-2 gap-2">
-        <Button type="button" variant="outline" size="lg" onClick={onAnother}>
+      {onClose ? (
+        <div className="grid grid-cols-2 gap-2">
+          <Button type="button" variant="outline" size="lg" onClick={onAnother}>
+            Register another
+          </Button>
+          <Button type="button" variant="quiet" size="lg" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      ) : (
+        <Button type="button" variant="outline" size="lg" fullWidth onClick={onAnother}>
           Register another
         </Button>
-        <Button type="button" variant="quiet" size="lg" onClick={onClose}>
-          Close
-        </Button>
-      </div>
+      )}
     </div>
   );
 }
@@ -612,6 +658,14 @@ function WalkinEntryCard({
 /* ------------------------------------------------------------------ */
 /* Recording how a walk-in pays                                        */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Side by side where they fit (the entry card), one above the other where
+ * they do not (the Payment cell of a diary row at phone width, ~190px),
+ * and never a label broken over lines: "M-Pesa code" used to wrap to three.
+ */
+const buttonRow = "flex flex-wrap gap-2";
+const rowButton = "min-h-11 flex-1 whitespace-nowrap";
 
 /**
  * The label, and — until a payment exists (or the last one was rejected) —
@@ -677,21 +731,21 @@ export function WalkinPayment({ booking, onChanged }: { booking: Booking; onChan
             <p className="text-xs text-slab-600">
               Saved as a claim. Verify it against the till statement as the next step.
             </p>
-            <div className="grid grid-cols-2 gap-2">
-              <Button type="submit" variant="dark" className="min-h-11" disabled={busy || !code.trim()}>
+            <div className={buttonRow}>
+              <Button type="submit" variant="dark" className={rowButton} disabled={busy || !code.trim()}>
                 {busy ? "Saving..." : "Save code"}
               </Button>
-              <Button type="button" variant="quiet" className="min-h-11" disabled={busy} onClick={() => setCodeOpen(false)}>
+              <Button type="button" variant="quiet" className={rowButton} disabled={busy} onClick={() => setCodeOpen(false)}>
                 Cancel
               </Button>
             </div>
           </form>
         ) : (
-          <div className="grid grid-cols-2 gap-2">
+          <div className={buttonRow}>
             <Button
               type="button"
               variant="dark"
-              className="min-h-11"
+              className={rowButton}
               disabled={busy}
               onClick={() => void start({ method: "cash" })}
             >
@@ -700,7 +754,7 @@ export function WalkinPayment({ booking, onChanged }: { booking: Booking; onChan
             <Button
               type="button"
               variant="outline"
-              className="min-h-11"
+              className={rowButton}
               disabled={busy}
               onClick={() => setCodeOpen(true)}
             >

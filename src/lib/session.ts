@@ -200,6 +200,21 @@ export function verifySessionValue(
 }
 
 /**
+ * The same check with the configuration folded in: no session at all
+ * unless both variables are set. src/lib/staff-guard.ts goes through this,
+ * so every staff route, the /admin layout and the staff switch on /book
+ * share one answer. Pure, so it can be tested.
+ */
+export function sessionFromCookie(
+  value: string | undefined,
+  config: StaffAuthConfig,
+  staffNames: readonly string[],
+  now: number = Date.now(),
+): StaffSession | null {
+  return config.ok ? verifySessionValue(value, config.secret, staffNames, now) : null;
+}
+
+/**
  * Constant-time comparison. Both sides are hashed to 32 bytes first because
  * `timingSafeEqual` throws on buffers of different lengths.
  */

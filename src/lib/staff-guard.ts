@@ -23,8 +23,8 @@ import type { NextRequest } from "next/server";
 import { staffNames } from "@/data/staff-names";
 import {
   SESSION_COOKIE,
+  sessionFromCookie,
   staffAuthConfig,
-  verifySessionValue,
   type StaffSession,
 } from "@/lib/session";
 
@@ -36,7 +36,7 @@ function verify(value: string | undefined): StaffSession | null {
     );
     return null;
   }
-  return verifySessionValue(value, config.secret, staffNames);
+  return sessionFromCookie(value, config, staffNames);
 }
 
 /** For route handlers. */
@@ -51,4 +51,16 @@ export function isStaffRequest(request: NextRequest): boolean {
 /** For server components (the /admin layout), which have no request object. */
 export async function getStaffSessionFromCookies(): Promise<StaffSession | null> {
   return verify((await cookies()).get(SESSION_COOKIE)?.value);
+}
+
+/**
+ * For /book: whether to offer the walk-in switch. A boolean only, so the
+ * name never reaches a public page. Convenience, not a lock: the walk-in
+ * routes check the session again on every request.
+ */
+export async function isStaffViewer(): Promise<boolean> {
+  const value = (await cookies()).get(SESSION_COOKIE)?.value;
+  // No cookie is the customer case; answered without `verify`, so a
+  // misconfigured deploy does not log an error for every visitor.
+  return value ? verify(value) !== null : false;
 }
