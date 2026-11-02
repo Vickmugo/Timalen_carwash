@@ -5,7 +5,9 @@ import { hoursSummary } from "@/data/business";
 import { cheapestConfirmedPriceKes } from "@/lib/prices";
 import { getPriceBook } from "@/lib/prices-db";
 import { formatKes } from "@/lib/format";
+import { isStaffViewer } from "@/lib/staff-guard";
 import { BookingFlow } from "./BookingFlow";
+import { StaffBookLoader } from "./StaffBookLoader";
 
 /**
  * /book — ONE PAGE, THE WHOLE FLOW.
@@ -55,7 +57,13 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function BookPage() {
-  const priceBook = await getPriceBook();
+  /*
+    STAFF GET A SWITCH; CUSTOMERS GET EXACTLY THE PAGE THEY ALWAYS DID.
+    The same session check as the staff routes (src/lib/staff-guard.ts),
+    down to a boolean. Reading the cookie does not make this page
+    cacheable: it is already sent `private, no-store` as force-dynamic.
+  */
+  const [priceBook, staff] = await Promise.all([getPriceBook(), isStaffViewer()]);
   const from = cheapestConfirmedPriceKes(priceBook);
 
   return (
@@ -92,7 +100,7 @@ export default async function BookPage() {
         }
       />
 
-      <BookingFlow priceBook={priceBook} />
+      {staff ? <StaffBookLoader priceBook={priceBook} /> : <BookingFlow priceBook={priceBook} />}
     </div>
   );
 }

@@ -31,10 +31,18 @@ import { postStaff, type StaffList } from "@/lib/use-staff-list";
 const th =
   "whitespace-nowrap px-3 py-2 text-left text-xs font-bold uppercase tracking-wide text-slab-400";
 const td = "px-3 py-2.5 align-top text-sm";
-const smallButton =
-  "min-h-9 whitespace-nowrap rounded-slab border-2 px-2.5 text-xs font-bold uppercase tracking-wide transition-colors duration-150 ease-plain disabled:cursor-not-allowed disabled:opacity-50";
-const quietButton = `${smallButton} border-slab-300 text-slab-700 hover:border-slab-900 hover:text-slab-900`;
-const strongButton = `${smallButton} border-slab-900 bg-slab-900 text-slab-50 hover:bg-slab-700`;
+const buttonShape =
+  "whitespace-nowrap rounded-slab border-2 px-2.5 text-xs font-bold uppercase tracking-wide transition-colors duration-150 ease-plain disabled:cursor-not-allowed disabled:opacity-50";
+const quietTone = "border-slab-300 text-slab-700 hover:border-slab-900 hover:text-slab-900";
+const strongTone = "border-slab-900 bg-slab-900 text-slab-50 hover:bg-slab-700";
+const quietButton = `min-h-9 ${buttonShape} ${quietTone}`;
+const strongButton = `min-h-9 ${buttonShape} ${strongTone}`;
+/**
+ * Cash due is worked standing up, on a phone, and also sits on the walk-in
+ * entry card: its buttons and amount box are 44px, a thumb's width.
+ */
+const cashQuietButton = `min-h-11 ${buttonShape} ${quietTone}`;
+const cashStrongButton = `min-h-11 ${buttonShape} ${strongTone}`;
 
 const KIND_WORDS = { booking: "Wash booking", order: "Concrete order", carpet: "Carpets / sofa" } as const;
 
@@ -370,7 +378,7 @@ export function CashDue({
                         onChange={(event) =>
                           setAmounts((current) => ({ ...current, [payment.id]: event.target.value }))
                         }
-                        className="min-h-9 w-28 rounded-slab border-2 border-slab-300 px-2 text-sm font-semibold focus:border-slab-900 focus:outline-none"
+                        className="min-h-11 w-28 rounded-slab border-2 border-slab-300 px-2 text-sm font-semibold focus:border-slab-900 focus:outline-none"
                       />
                       {differs ? (
                         <span className="mt-1 block text-xs font-semibold text-alert">
@@ -383,20 +391,20 @@ export function CashDue({
                         <div className="flex flex-wrap gap-2">
                           <button
                             type="button"
-                            className={strongButton}
+                            className={cashStrongButton}
                             disabled={busy !== null}
                             onClick={() => receive(payment)}
                           >
                             {busy === payment.id ? "Issuing..." : "Yes, issue receipt"}
                           </button>
-                          <button type="button" className={quietButton} onClick={() => setConfirming(null)}>
+                          <button type="button" className={cashQuietButton} onClick={() => setConfirming(null)}>
                             Cancel
                           </button>
                         </div>
                       ) : (
                         <button
                           type="button"
-                          className={strongButton}
+                          className={cashStrongButton}
                           disabled={busy !== null}
                           onClick={() => setConfirming(payment.id)}
                         >
