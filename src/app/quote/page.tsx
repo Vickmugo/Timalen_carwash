@@ -13,7 +13,7 @@ import { QuoteForm } from "./QuoteForm";
 export const metadata: Metadata = {
   title: "Request a quote",
   description:
-    "Get a price for bulk concrete orders, custom moulds, or anything needing a site measure — including cabros, air vents, culverts and cornices that are not listed online. Tell us what you need and we will call you back.",
+    "Get a price for bulk concrete orders, custom moulds, or anything needing a site measure — including cabros, air vents and cornices that are not listed online. Tell us what you need and we will call you back.",
   alternates: { canonical: "/quote" },
   openGraph: {
     title: "Request a quote",

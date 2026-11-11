@@ -197,7 +197,8 @@ export type ProductCategoryId =
   | "channels"
   | "drainage-channels"
   | "cornices"
-  | "cabros";
+  | "cabros"
+  | "culverts";
 
 export interface ProductCategory {
   id: ProductCategoryId;
@@ -250,7 +251,8 @@ export interface Product {
   variants?: ProductVariant[];
   /**
    * What the variants measure, in the words the picker uses: "height" for
-   * posts and spindles, "length" for drainage channels. Absent means
+   * posts and spindles, "length" for drainage channels, "diameter" for
+   * culverts. Absent means
    * "height", which is what every product sold in sizes meant before
    * drainage channels arrived. Only read when `variants` is present.
    */

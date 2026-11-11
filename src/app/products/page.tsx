@@ -22,20 +22,21 @@ import { formatKes } from "@/lib/format";
  *
  * Cabros, cornices and channels ARE named here now: they have confirmed
  * prices and cards on this page, so a visitor arriving on that search term
- * finds what they came for. Air vents and culverts stay out — they are
- * still not listed (see the note at the bottom of the grid), and a
- * description promising products the page does not show is the kind of
- * result a visitor bounces straight off.
+ * finds what they came for. Culverts joined them in November 2026 with a
+ * card but no price yet. Air vents stay out — still not listed (see the
+ * note at the bottom of the grid), and a description promising products
+ * the page does not show is the kind of result a visitor bounces straight
+ * off.
  */
 export const metadata: Metadata = {
   title: "Concrete products",
   description:
-    "Fencing posts, slabs, spindles, wall caps, road kerbs, channels, cornices and cabros — cast in our own yard and sold off the stack. Buy standard items online or ask for a bulk quote.",
+    "Fencing posts, slabs, spindles, wall caps, road kerbs, channels, cornices, cabros and culverts — cast in our own yard and sold off the stack. Buy standard items online or ask for a bulk quote.",
   alternates: { canonical: "/products" },
   openGraph: {
     title: "Concrete products",
     description:
-      "Fencing posts, slabs, spindles, wall caps, road kerbs, channels, cornices and cabros, cast in our own yard.",
+      "Fencing posts, slabs, spindles, wall caps, road kerbs, channels, cornices, cabros and culverts, cast in our own yard.",
     url: "/products",
   },
 };
@@ -151,17 +152,16 @@ export default async function ProductsPage({
       </ul>
 
       {/*
-        TWO LINES LEFT, DOWN FROM FOUR. Cabros and cornices moved up into
+        ONE LINE LEFT, DOWN FROM FOUR. Cabros and cornices moved up into
         the grid when the client confirmed prices for them; channels went in
-        at the same time. Air vents and culverts are still advertised on the
-        yard wall and on the banner but have neither a price nor a
-        photograph, so there is nothing to put on a card and they stay here
-        in words. See the note at the top of src/data/products.ts for why a
-        confirmed price is what moves a line into the grid.
+        at the same time, and culverts in November 2026 (unpriced, with a
+        photograph). Air vents are still advertised on the yard wall and on
+        the banner but have neither a price nor a photograph, so there is
+        nothing to put on a card and they stay here in words. See the note
+        at the top of src/data/products.ts.
       */}
       <p className="mt-8 max-w-prose border-t-2 border-slab-200 pt-6 text-sm text-slab-600">
-        The yard also casts air vents and culverts. They are not listed here
-        yet.{" "}
+        The yard also casts air vents. They are not listed here yet.{" "}
         <Link
           href="/quote"
           className="font-semibold underline underline-offset-4 hover:text-slab-900"

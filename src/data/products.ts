@@ -49,8 +49,13 @@
  *
  * STILL NOT LISTED — pending real content.
  * The hand-painted wall at the yard and the printed banner
- * (property-banner-concrete.jpg) also advertise AIR VENTS and CULVERTS.
- * They stay absent: no photograph, no price, nothing to put on a card.
+ * (property-banner-concrete.jpg) also advertise AIR VENTS. They stay
+ * absent: no photograph, no price, nothing to put on a card.
+ *
+ * CULVERTS WERE LISTED IN NOVEMBER 2026, still with no price: three
+ * diameters and a photograph are known, and the line goes up unpriced so
+ * staff can set the figures from the admin view once the client confirms
+ * them. Until then the line reads "price not listed". See the entry.
  *
  * CHANNELS, CORNICES AND CABROS ARE NOW LISTED WITHOUT PHOTOGRAPHS, which
  * reverses what this file used to say, so it is worth writing down why
@@ -60,8 +65,9 @@
  * as a general matter. What changed is that these three now have CONFIRMED
  * PRICES from the client, which the four unlisted lines never did — and a
  * priced line that the yard genuinely sells is worth more to a customer
- * visible with a placeholder than invisible altogether. Air vents and
- * culverts have no price either, so nothing has moved for them.
+ * visible with a placeholder than invisible altogether. Air vents have no
+ * price either, so nothing has moved for them. (Culverts are the one
+ * exception, listed unpriced; see above.)
  *
  * `status` is set BY HAND. There is no stock count anywhere in this app and
  * there should not be one — this business does not keep reliable counts.
@@ -172,6 +178,14 @@ export const productPhotoAlt: Record<string, string> = {
 
   "/images/products/product-roadkerb-01.jpg":
     "Heavy chamfered road kerbs laid out in rows on the grass, the angled top edge running the length of each one and further rows stacked behind.",
+
+  // Shared by Channels and Drainage Channels; see the note on Channels.
+  "/images/products/product-drainagechannel-01.jpg":
+    "Rows of precast concrete drainage channels standing upright in the yard",
+
+  // Which diameter it shows is not known, so it names none.
+  "/images/products/product-culvert-01.jpg":
+    "Concrete culvert pipes standing on end in the yard",
 };
 
 export const productCategories: ProductCategory[] = [
@@ -223,6 +237,11 @@ export const productCategories: ProductCategory[] = [
     name: "Cabros",
     blurb:
       "Interlocking paving blocks for driveways, parking bays and walkways.",
+  },
+  {
+    id: "culverts",
+    name: "Culverts",
+    blurb: "Concrete culvert pipes in three diameters.",
   },
 ];
 
@@ -408,17 +427,19 @@ export const products: Product[] = [
 
   /* ---------------------------- Channels ---------------------------- */
   /*
-    NO PHOTOGRAPH YET, and the empty array is doing real work: ProductGallery
-    renders its labelled placeholder block at the same ratio a photo would
-    occupy, so the card keeps its shape and nothing shifts when the file
-    arrives.
+    PHOTOGRAPH ADDED NOVEMBER 2026: product-drainagechannel-01.jpg, rows of
+    precast channel units, U-shaped in section, standing upright in the
+    yard. The client says it shows their drainage channels / channels, and
+    it shows the U-profile the banner pictures, which is the test the note
+    below set. The SAME file is on Drainage Channels: the client treats
+    the two as one thing, and whether they are one product or two is still
+    open (see the note on that entry).
 
-    THREE CANDIDATE PHOTOS HAVE ALREADY BEEN REJECTED for this line — two
+    THREE CANDIDATE PHOTOS WERE REJECTED for this line before that — two
     the client labelled "channels" that could not be told apart from the
     wall caps set, and the pair that used to sit on the slab entry. The
     banner shows channels as a U-profile trough section and none of the
-    three showed that, so none of them are here. Do not fill this array
-    until a photograph actually shows the U-profile.
+    three showed that.
 
     `specs` is empty for the same reason it is empty on cornices and
     cabros: not one dimension has been given. See the header.
@@ -429,7 +450,7 @@ export const products: Product[] = [
     categoryId: "channels",
     name: "Channels",
     description:
-      "Cast concrete channel sections, laid end to end to carry surface water along a driveway or a yard edge. Photograph and sizes to follow.",
+      "Cast concrete channel sections, laid end to end to carry surface water along a driveway or a yard edge. Sizes to follow.",
     unitLabel: "per piece",
     // UNCONFIRMED STATUS. Nobody has said whether these are held in the
     // yard or cast on demand; "ready_to_ship" matches every other line and
@@ -437,7 +458,7 @@ export const products: Product[] = [
     status: "ready_to_ship",
     quoteOnly: false,
     specs: [],
-    images: [],
+    images: ["/images/products/product-drainagechannel-01.jpg"],
   },
 
   /* ------------------------ Drainage Channels ----------------------- */
@@ -448,8 +469,10 @@ export const products: Product[] = [
     the same product described twice; nobody has said, so both are listed
     exactly as given and the decision is the owner's, not this file's.
 
-    NO PHOTOGRAPH AND NO SPECS. The two lengths are the only facts given,
-    and they live on the picker. Do not borrow the Channels, Slabs or
+    NO SPECS. The two lengths are the only facts given, and they live on
+    the picker. The photograph is product-drainagechannel-01.jpg, shared
+    with Channels because the client named it as showing their drainage
+    channels / channels (November 2026). Do not borrow the Slabs or
     staging photographs for this entry.
 
     Same variant mechanism as posts and spindles: one `product_prices` row
@@ -462,7 +485,7 @@ export const products: Product[] = [
     categoryId: "drainage-channels",
     name: "Drainage Channels",
     description:
-      "Cast concrete drainage channel sections, sold by length. Photograph and sizes to follow.",
+      "Cast concrete drainage channel sections, sold by length. Sizes to follow.",
     unitLabel: "per piece",
     variants: [
       { id: "1ft", label: "1 ft" },
@@ -473,7 +496,8 @@ export const products: Product[] = [
     status: "ready_to_ship",
     quoteOnly: false,
     specs: [],
-    images: [],
+    // The same photograph as Channels, on purpose: see the note there.
+    images: ["/images/products/product-drainagechannel-01.jpg"],
   },
 
   /* ---------------------------- Cornices ---------------------------- */
@@ -514,6 +538,55 @@ export const products: Product[] = [
     quoteOnly: false,
     specs: [],
     images: [],
+  },
+
+  /* ----------------------------- Culverts ---------------------------- */
+  /*
+    ADDED NOVEMBER 2026, UNPRICED. Three diameters and one photograph are
+    the only facts given. Same variant mechanism as posts, spindles and
+    drainage channels: one `product_prices` row per diameter, seeded with a
+    null price by supabase/migrations/20261111200000_culverts.sql, so staff
+    can set the figures in the price editor once the client confirms them
+    (`setPrice` refuses an id it has never seen). Until then the page reads
+    "price not listed" and nothing can go in the basket.
+
+    The variant ids must match that migration exactly; the test in
+    tests/products.test.ts reads the SQL and fails on any difference.
+
+    "Diameter" ONLY, not "internal" or "external": nobody has said which.
+
+    NOT GIVEN, AND NOT TO BE INVENTED HERE: price, pipe length, wall
+    thickness, strength class, weight, lead time, stock.
+
+    UNCONFIRMED UNIT. "per piece" is an assumption, not confirmed with the
+    client. It shows on the card's price line, the detail page headline
+    and the picker, the cart, the receipt, quotes and the staff price
+    editor. Correct it here if the client sells culverts some other way.
+
+    The one photograph shows pipes standing on end in the yard; which
+    diameter it shows is not known, so its alt text names no size.
+  */
+  {
+    id: "culvert",
+    slug: "culverts",
+    categoryId: "culverts",
+    name: "Culverts",
+    description:
+      "Concrete culvert pipes in three diameters: 450, 600 and 900 mm.",
+    unitLabel: "per piece", // UNCONFIRMED UNIT — see above.
+    variants: [
+      { id: "450mm", label: "450 mm" },
+      { id: "600mm", label: "600 mm" },
+      { id: "900mm", label: "900 mm" },
+    ],
+    variantNoun: "diameter",
+    // UNCONFIRMED STATUS — see the note on channels above. Stock has not
+    // been confirmed; "ready_to_ship" is the site's convention for an
+    // unconfirmed line, and it is the owner's to correct.
+    status: "ready_to_ship",
+    quoteOnly: false,
+    specs: [{ label: "Diameter", value: "450 / 600 / 900 mm" }],
+    images: ["/images/products/product-culvert-01.jpg"],
   },
 ];
 
