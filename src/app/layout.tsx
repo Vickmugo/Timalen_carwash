@@ -39,7 +39,7 @@ export const metadata: Metadata = {
     template: `%s | ${business.name}`,
   },
   description:
-    "A car wash bay and a concrete yard on the same premise. Book a wash slot online, or buy fencing posts, slabs, spindles, wall caps, road kerbs, channels, cornices and cabros cast on site.",
+    "A car wash bay and a concrete yard on the same premise. Book a wash slot online, or buy fencing posts, slabs, spindles, wall caps, road kerbs, channels, cornices, cabros and culverts cast on site.",
   applicationName: business.name,
   alternates: { canonical: "/" },
   openGraph: {
@@ -47,7 +47,7 @@ export const metadata: Metadata = {
     siteName: business.name,
     title: `${business.name} | Car wash and concrete works in one yard`,
     description:
-      "Book a car wash slot online, or buy fencing posts, slabs, spindles, wall caps, road kerbs, channels, cornices and cabros cast on site.",
+      "Book a car wash slot online, or buy fencing posts, slabs, spindles, wall caps, road kerbs, channels, cornices, cabros and culverts cast on site.",
     locale: "en_KE",
     url: "/",
   },
